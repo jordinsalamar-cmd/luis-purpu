@@ -22,6 +22,10 @@ CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 TRANSPARENT = "#ff00ff"
 WIDTH, HEIGHT = 300, 430
 CANVAS_WIDTH, CANVAS_HEIGHT = 280, 340
+# Capturing the WebGL canvas is the most expensive part of the overlay. Twelve
+# frames per second keeps the body responsive while leaving CPU for the model
+# and speech synthesis.
+FRAME_INTERVAL_MS = 80
 HTML = r'''<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
@@ -218,7 +222,7 @@ class LuisOverlay:
             except Exception:
                 pass
         if self.root.winfo_exists():
-            self.root.after(33, self.update_frame)
+            self.root.after(FRAME_INTERVAL_MS, self.update_frame)
 
     def close(self, _event=None):
         send_command(self.args.command, "exit")

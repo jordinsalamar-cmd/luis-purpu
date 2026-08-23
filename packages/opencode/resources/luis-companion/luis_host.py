@@ -59,6 +59,7 @@ class LuisHost:
             "LUIS_TTS_VOICE_OFFLINE", os.environ.get("LUIS_TTS_VOICE", "Microsoft Raul")
         )
         self.online_voice = os.environ.get("LUIS_TTS_VOICE_ONLINE", "es-MX-JorgeNeural")
+        self.voice_mode = os.environ.get("LUIS_TTS_MODE", "auto").strip().lower()
         self.ffplay = os.environ.get("LUIS_FFPLAY") or shutil.which("ffplay")
         self.tts_python = self.find_tts_python()
         self.runtime_python = self.tts_python or sys.executable or self.args.python
@@ -216,6 +217,10 @@ class LuisHost:
         if not text:
             return False
         with self.speech_lock:
+            if self.voice_mode == "offline":
+                return self.speak_offline(text)
+            if self.voice_mode == "online":
+                return self.speak_online(text)
             if self.speak_online(text):
                 return True
             return self.speak_offline(text)

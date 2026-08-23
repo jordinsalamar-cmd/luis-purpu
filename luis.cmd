@@ -1,8 +1,12 @@
 @echo off
 setlocal
 set "LUIS_ROOT=%~dp0"
-set "LUIS_BIN=%LUIS_ROOT%packages\opencode\dist-luis\opencode-windows-x64\bin\opencode.exe"
-set "LUIS_COMPANION_DIR=%LUIS_ROOT%packages\opencode\dist-luis\opencode-windows-x64\bin\luis-companion"
+set "LUIS_BIN=%LUIS_ROOT%packages\opencode\dist\opencode-windows-x64\bin\opencode.exe"
+set "LUIS_COMPANION_DIR=%LUIS_ROOT%packages\opencode\dist\opencode-windows-x64\bin\luis-companion"
+if not exist "%LUIS_BIN%" (
+  set "LUIS_BIN=%LUIS_ROOT%packages\opencode\dist-luis\opencode-windows-x64\bin\opencode.exe"
+  set "LUIS_COMPANION_DIR=%LUIS_ROOT%packages\opencode\dist-luis\opencode-windows-x64\bin\luis-companion"
+)
 set "LUIS_GRAPH_ROOT=%LUIS_ROOT%"
 set "LUIS_GRAPH_FILE=%LUIS_ROOT%graphify-out\graph.html"
 set "LUIS_VRM_PATH=%LUIS_COMPANION_DIR%\assets\luis.vrm"
@@ -18,6 +22,10 @@ if not exist "%LUIS_BIN%" (
 )
 
 if /I "%~1"=="companion" (
+  "%LUIS_BIN%" %*
+) else if /I "%~1"=="--version" (
+  "%LUIS_BIN%" %*
+) else if /I "%~1"=="--help" (
   "%LUIS_BIN%" %*
 ) else (
   "%LUIS_BIN%" --luis %*

@@ -40,6 +40,40 @@ function sendCommand(command: Record<string, unknown>) {
   }
 }
 
+function companionHostAlive() {
+  const pidPath = stateFile().replace(/\.json$/, ".pid")
+  try {
+    const pid = Number(readFileSync(pidPath, "utf8").trim())
+    if (!Number.isInteger(pid) || pid <= 0) return false
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function companionPython() {
+  const configured = process.env.LUIS_MASCOT_PYTHON || "python"
+  if (process.platform !== "win32" || !configured.toLowerCase().endsWith("python.exe")) return configured
+  const windowless = join(dirname(configured), "pythonw.exe")
+  return existsSync(windowless) ? windowless : configured
+}
+
+function ensureLuisCompanion() {
+  if (process.platform !== "win32" || process.env.LUIS_COMPANION === "0") return
+  let state: { visible?: boolean; voice?: boolean } | undefined
+  try {
+    state = JSON.parse(readFileSync(stateFile(), "utf8")) as { visible?: boolean; voice?: boolean }
+  } catch {
+    // The host may not have created its state file yet.
+  }
+
+  // A closed/crashed host must not silently swallow speech commands. Preserve an
+  // intentional mute while restarting only when the companion itself is gone.
+  if (state?.voice === false && state.visible === true && companionHostAlive()) return
+  if (state?.visible !== true || !companionHostAlive()) startLuisCompanion()
+}
+
 export function stopLuisCompanion() {
   const sent = sendCommand({ action: "exit" })
   try {
@@ -56,6 +90,7 @@ export function stopLuisCompanion() {
 export function speakLuis(text: string) {
   const value = text.trim()
   if (!value) return false
+  ensureLuisCompanion()
   return sendCommand({ action: "speak", text: value })
 }
 
@@ -65,6 +100,7 @@ export function setLuisStatus(status: string) {
 
 export function startLuisCompanion() {
   if (process.platform !== "win32" || process.env.LUIS_COMPANION === "0") return false
+  if (companionHostAlive()) return true
   const directory = resourceDirectory()
   if (!directory) {
     writeCompanionError("No se encontró el recurso luis-companion")
@@ -72,12 +108,13 @@ export function startLuisCompanion() {
   }
   const state = stateFile()
   const command = commandFile()
+  const python = companionPython()
   const child = spawn(
-    process.env.LUIS_MASCOT_PYTHON || "python",
+    python,
     [
       join(directory, "luis_host.py"),
       "--python",
-      process.env.LUIS_MASCOT_PYTHON || "python",
+      python,
       "--mascot",
       join(directory, "luis_mascot.py"),
       "--listener",
