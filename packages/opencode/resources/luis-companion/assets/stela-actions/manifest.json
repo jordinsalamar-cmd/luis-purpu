@@ -1,0 +1,80 @@
+{
+  "idle": [
+    "idle-01.png",
+    "idle-02.png",
+    "idle-03.png"
+  ],
+  "speaking": [
+    "speaking-01.png",
+    "speaking-02.png",
+    "speaking-03.png"
+  ],
+  "thinking": [
+    "thinking-01.png",
+    "thinking-02.png",
+    "thinking-03.png",
+    "thinking-04.png"
+  ],
+  "working": [
+    "working-01.png",
+    "working-02.png",
+    "working-03.png",
+    "working-04.png",
+    "working-05.png",
+    "working-06.png",
+    "working-07.png",
+    "working-08.png",
+    "working-09.png",
+    "working-10.png",
+    "working-11.png",
+    "working-12.png",
+    "working-13.png",
+    "working-14.png",
+    "working-15.png",
+    "working-16.png"
+  ],
+  "finishing": [
+    "finishing-01.png",
+    "finishing-02.png",
+    "finishing-03.png",
+    "finishing-04.png",
+    "finishing-05.png"
+  ],
+  "reading": [
+    "reading-01.png",
+    "reading-02.png",
+    "reading-03.png"
+  ],
+  "seeing": [
+    "seeing-01.png",
+    "seeing-02.png",
+    "seeing-03.png",
+    "seeing-04.png"
+  ],
+  "acting": [
+    "acting-01.png",
+    "acting-02.png",
+    "acting-03.png",
+    "acting-04.png",
+    "acting-05.png",
+    "acting-06.png",
+    "acting-07.png"
+  ],
+  "sleeping": [
+    "sleeping-01.png",
+    "sleeping-02.png",
+    "sleeping-03.png"
+  ],
+  "music": [
+    "music-01.png",
+    "music-02.png"
+  ],
+  "celebrate": [
+    "celebrate-01.png",
+    "celebrate-02.png"
+  ],
+  "muted": [
+    "muted-01.png",
+    "muted-02.png"
+  ]
+}

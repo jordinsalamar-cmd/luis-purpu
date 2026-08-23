@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if command -v powershell.exe >/dev/null 2>&1; then
+  exec powershell.exe -ExecutionPolicy Bypass -File "$ROOT/install.ps1" "$@"
+fi
+
+echo "Luis-Purpu se instala con PowerShell en Windows:"
+echo "  powershell -ExecutionPolicy Bypass -File ./install.ps1"
+exit 1

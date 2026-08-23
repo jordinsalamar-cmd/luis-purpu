@@ -1,0 +1,493 @@
+{
+  "version": "graphify+luis-v1",
+  "directed": true,
+  "nodes": [
+    {
+      "id": "luis:identity",
+      "label": "Luis",
+      "type": "identity",
+      "content": "Asistente de escritorio en español; llama jefe al usuario.",
+      "created": 1787506124708,
+      "updated": 1787516799583
+    },
+    {
+      "id": "luis:b6dfea4150c0effca8ae",
+      "label": "sesión ses_fd05",
+      "type": "session",
+      "created": 1787506124708,
+      "updated": 1787506179240,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:d3869be9080337230018",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "hola",
+      "created": 1787506124708,
+      "updated": 1787506124708,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:ce9bc9e184c647d8a33c",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "¡Qué tal, jefe! Aquí estoy, listo para lo que necesites. ¿En qué te ayudo hoy?",
+      "created": 1787506137377,
+      "updated": 1787506137377,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:237b0205f76d596c91ec",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "pero la",
+      "created": 1787506171663,
+      "updated": 1787506171663,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:3eddc232c3a69e1360e9",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "¿\"Pero la\" qué, jefe? Se me cortó la señal ahí 😄. Suéltame la frase completa y me pongo a trabajar.",
+      "created": 1787506179240,
+      "updated": 1787506179240,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:f1faf7a270a02bca075b",
+      "label": "sesión ses_fd04",
+      "type": "session",
+      "created": 1787507017952,
+      "updated": 1787507115957,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:45d73cc0b3152206b815",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "bro abre el navegador y reproduce mil horas",
+      "created": 1787507017952,
+      "updated": 1787507017952,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:cfc2a3142d159f4e279c",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Listo, jefe: navegador abierto con \"Mil Horas\" en YouTube. Dale play al de tu agrado y a disfrutar; si querías otra versión (Andrés Calamaro en vivo, cover, lo que sea), me dices y la busco.",
+      "created": 1787507115957,
+      "updated": 1787507115957,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:bc92d9215800553bf081",
+      "label": "sesión ses_fcff",
+      "type": "session",
+      "created": 1787512377472,
+      "updated": 1787512394219,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:00044856d54c025a6f2d",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "hola",
+      "created": 1787512377472,
+      "updated": 1787512377472,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:daa65d9b4e4471d6dfeb",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Hola, jefe. ¿En qué te ayudo hoy?",
+      "created": 1787512394219,
+      "updated": 1787512394219,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:b078a3b366845d83df12",
+      "label": "sesión ses_fcfe",
+      "type": "session",
+      "created": 1787512985946,
+      "updated": 1787513829656,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:0df51c42357bdecc54ce",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "hola",
+      "created": 1787512985946,
+      "updated": 1787512985946,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:47fa9aae53feefe5c93a",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Hola, jefe. ¿En qué te ayudo hoy?",
+      "created": 1787513005120,
+      "updated": 1787513005120,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:616f38f972ca8c3130dc",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "abreel navegador y reproduce mil horas",
+      "created": 1787513070252,
+      "updated": 1787513070252,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:d76e1993154bab378547",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Listo, jefe. El navegador abrió el video y verifiqué por el título de la ventana que cargó: **\"Los Abuelos de la Nada - Mil horas\"** en YouTube. YouTube normalmente arranca la reproducción automáticamente al abrir un enlace directo.\n\nDos notas rápidas:\n- Si por alguna razón quedó pausado, dime \"dale play\" y activo el reproductor.\n- Elegí la versión clásica de Los Abuelos de la Nada; si la querías de Enanitos Verdes, lo cambio enseguida.",
+      "created": 1787513280569,
+      "updated": 1787513280569,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:dc404d7c9110767aae70",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "dale play",
+      "created": 1787513571464,
+      "updated": 1787513571464,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:ebe53952b2a68b81d323",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Listo, jefe: enfoqué la ventana del video y envié el atajo de reproducción (tecla K de YouTube). Por limitaciones de este entorno no puedo confirmar visualmente si arrancó; échale un vistazo a la pantalla. Si quedó pausado o quieres subir el volumen, me avisas y lo ajusto.",
+      "created": 1787513732422,
+      "updated": 1787513732422,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:0324e46f0176d9128e79",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "la edad",
+      "created": 1787513829656,
+      "updated": 1787513829656,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:8fb42430341264ae5e1a",
+      "label": "sesión ses_fcfc",
+      "type": "session",
+      "created": 1787515277070,
+      "updated": 1787515360633,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:97ab5da5694c922ca084",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "abre WhatsAp",
+      "created": 1787515277070,
+      "updated": 1787515277070,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:780bc164b5f28fdb4004",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Listo, jefe. WhatsApp quedó abierto y en primer plano; verifiqué la ventana activa en la lista de ventanas del sistema.",
+      "created": 1787515360633,
+      "updated": 1787515360633,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:2ab3f675c55dbe932415",
+      "label": "sesión ses_fcfc",
+      "type": "session",
+      "created": 1787515696830,
+      "updated": 1787515815167,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:344ba5cd526096267fda",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "abre WhatsAp",
+      "created": 1787515696830,
+      "updated": 1787515696830,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:fa5e215b7099c66006dd",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Listo, jefe. WhatsApp quedó abierto y en primer plano — la ventana existe y el enfoque se ejecutó con éxito. Un detalle: intenté tomar una captura para verificar el contenido visual, pero el modelo actual no soporta entrada de imágenes, así que no puedo confirmar lo que se muestra en pantalla. Si necesitas que interactúe dentro de WhatsApp (abrir un chat, enviar algo), dime qué busco y lo hago con las acciones disponibles.",
+      "created": 1787515815167,
+      "updated": 1787515815167,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:822fd4b021163d2d6e9a",
+      "label": "sesión ses_fcfb",
+      "type": "session",
+      "created": 1787515982990,
+      "updated": 1787516799583,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:40390a3b5544f59309d6",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "abre WhatsA",
+      "created": 1787515982990,
+      "updated": 1787515982990,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:e0b4194b3956586cbc75",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Jefe, WhatsApp quedó abierto y su ventana está registrada en el sistema (título \"WhatsApp\"). Un detalle: intenté tomar una captura para verificar visualmente la pantalla, pero este modelo no puede procesar imágenes, así que no pude confirmar el contenido gráfico; solo lo que reporta el sistema de ventanas.\n\nSi quieres, puedo traer la ventana al frente con focus para que la tengas lista.",
+      "created": 1787516040869,
+      "updated": 1787516040869,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:d0855134d64c15a7127e",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "abre PSeInt",
+      "created": 1787516117878,
+      "updated": 1787516117878,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:16db14aa9c84e8c2fe23",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Listo, jefe: PSeInt terminó de cargar y su ventana principal ya está activa en el sistema.",
+      "created": 1787516213661,
+      "updated": 1787516213661,
+      "source": "session.prompt.assistant"
+    },
+    {
+      "id": "luis:fa6cdc9b6c9d24e43ec7",
+      "label": "solicitud del jefe",
+      "type": "conversation",
+      "content": "quiero q hagas en esa ventana un programa de un loguin de usuario y contraseña",
+      "created": 1787516266443,
+      "updated": 1787516266443,
+      "source": "session.prompt.user"
+    },
+    {
+      "id": "luis:341aafee10c2a642e65f",
+      "label": "respuesta de Luis",
+      "type": "lesson",
+      "content": "Listo, jefe: misión cumplida y verificada.\n\n- El programa de login quedó cargado en el editor de PSeInt y lo ejecuté con F9.\n- Comprobé el ciclo completo: la ventana \"Ejecutando proceso LOGIN\" apareció, aceptó usuario `admin` y contraseña `1234`, llegó al final y se cerró sola tras la pausa, señal de que terminó sin errores ni cuelgues.\n- Lógica incluida: 3 intentos máximos, mensajes de intentos restantes, bloqueo al fallar los tres y bienvenida al acertar.\n- El archivo quedó guardado en `C:\\Users\\HP\\Documents\\login.psc` por si quieres reabrirlo después.\n\nSi quieres, pruebo también la ruta de contraseña incorrecta para verificar los mensajes de reintento.",
+      "created": 1787516799583,
+      "updated": 1787516799583,
+      "source": "session.prompt.assistant"
+    }
+  ],
+  "edges": [
+    {
+      "source": "luis:identity",
+      "target": "luis:b6dfea4150c0effca8ae",
+      "relation": "participa_en",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b6dfea4150c0effca8ae",
+      "target": "luis:d3869be9080337230018",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b6dfea4150c0effca8ae",
+      "target": "luis:ce9bc9e184c647d8a33c",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b6dfea4150c0effca8ae",
+      "target": "luis:237b0205f76d596c91ec",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b6dfea4150c0effca8ae",
+      "target": "luis:3eddc232c3a69e1360e9",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:identity",
+      "target": "luis:f1faf7a270a02bca075b",
+      "relation": "participa_en",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:f1faf7a270a02bca075b",
+      "target": "luis:45d73cc0b3152206b815",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:f1faf7a270a02bca075b",
+      "target": "luis:cfc2a3142d159f4e279c",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:identity",
+      "target": "luis:bc92d9215800553bf081",
+      "relation": "participa_en",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:bc92d9215800553bf081",
+      "target": "luis:00044856d54c025a6f2d",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:bc92d9215800553bf081",
+      "target": "luis:daa65d9b4e4471d6dfeb",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:identity",
+      "target": "luis:b078a3b366845d83df12",
+      "relation": "participa_en",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b078a3b366845d83df12",
+      "target": "luis:0df51c42357bdecc54ce",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b078a3b366845d83df12",
+      "target": "luis:47fa9aae53feefe5c93a",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b078a3b366845d83df12",
+      "target": "luis:616f38f972ca8c3130dc",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b078a3b366845d83df12",
+      "target": "luis:d76e1993154bab378547",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b078a3b366845d83df12",
+      "target": "luis:dc404d7c9110767aae70",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b078a3b366845d83df12",
+      "target": "luis:ebe53952b2a68b81d323",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:b078a3b366845d83df12",
+      "target": "luis:0324e46f0176d9128e79",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:identity",
+      "target": "luis:8fb42430341264ae5e1a",
+      "relation": "participa_en",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:8fb42430341264ae5e1a",
+      "target": "luis:97ab5da5694c922ca084",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:8fb42430341264ae5e1a",
+      "target": "luis:780bc164b5f28fdb4004",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:identity",
+      "target": "luis:2ab3f675c55dbe932415",
+      "relation": "participa_en",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:2ab3f675c55dbe932415",
+      "target": "luis:344ba5cd526096267fda",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:2ab3f675c55dbe932415",
+      "target": "luis:fa5e215b7099c66006dd",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:identity",
+      "target": "luis:822fd4b021163d2d6e9a",
+      "relation": "participa_en",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:822fd4b021163d2d6e9a",
+      "target": "luis:40390a3b5544f59309d6",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:822fd4b021163d2d6e9a",
+      "target": "luis:e0b4194b3956586cbc75",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:822fd4b021163d2d6e9a",
+      "target": "luis:d0855134d64c15a7127e",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:822fd4b021163d2d6e9a",
+      "target": "luis:16db14aa9c84e8c2fe23",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:822fd4b021163d2d6e9a",
+      "target": "luis:fa6cdc9b6c9d24e43ec7",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "source": "luis:822fd4b021163d2d6e9a",
+      "target": "luis:341aafee10c2a642e65f",
+      "relation": "recuerda",
+      "confidence": "EXTRACTED"
+    }
+  ],
+  "metadata": {
+    "lastLuisMemory": 1787516799583,
+    "memoryVersion": "luis-v1"
+  }
+}
