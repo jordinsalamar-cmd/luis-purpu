@@ -17,7 +17,18 @@ function Find-Python {
     if ($LASTEXITCODE -eq 0 -and $resolved) { return $resolved }
   }
   $python = Get-Command python -ErrorAction SilentlyContinue
-  if ($python) { return $python.Source }
+  if ($python) {
+    $resolved = (& $python.Source -c "import sys; print(sys.executable)" 2>$null).Trim()
+    if ($LASTEXITCODE -eq 0 -and $resolved) { return $resolved }
+  }
+  $known = @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"),
+    (Join-Path ${env:ProgramFiles} "Python312\python.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "Python312\python.exe")
+  )
+  foreach ($candidate in $known) {
+    if (Test-Path -LiteralPath $candidate) { return $candidate }
+  }
   return $null
 }
 
@@ -29,9 +40,30 @@ function Find-Bun {
   return $null
 }
 
+function Refresh-ProcessPath {
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+  $env:Path = (($userPath, $machinePath | Where-Object { $_ }) -join ";")
+}
+
+function Install-WingetPackage([string]$Id, [string]$Label) {
+  $winget = Get-Command winget -ErrorAction SilentlyContinue
+  if (-not $winget) {
+    throw "No encuentro winget. Instala App Installer desde Microsoft Store y repite la instalación de Luis."
+  }
+  Step "Instalando $Label automáticamente..."
+  & $winget.Source install --id $Id --exact --source winget --accept-source-agreements --accept-package-agreements --silent
+  if ($LASTEXITCODE -ne 0) { throw "winget no pudo instalar $Label (código $LASTEXITCODE)." }
+  Refresh-ProcessPath
+}
+
 Set-Location -LiteralPath $ProjectRoot
 $python = Find-Python
-if (-not $python) { throw "Python 3 no está instalado. Instálalo desde https://www.python.org/downloads/ y repite." }
+if (-not $python) {
+  Install-WingetPackage "Python.Python.3.12" "Python 3.12"
+  $python = Find-Python
+}
+if (-not $python) { throw "No se pudo localizar Python 3 después de instalarlo." }
 
 $bun = Find-Bun
 if (-not $bun) {
@@ -40,6 +72,13 @@ if (-not $bun) {
   $bun = Find-Bun
 }
 if (-not $bun) { throw "No se pudo localizar Bun después de instalarlo." }
+
+$ffplay = Get-Command ffplay -ErrorAction SilentlyContinue
+if (-not $ffplay) {
+  Install-WingetPackage "Gyan.FFmpeg.Shared" "FFmpeg (audio para la voz online)"
+  $ffplay = Get-Command ffplay -ErrorAction SilentlyContinue
+}
+if (-not $ffplay) { throw "No se pudo localizar ffplay después de instalar FFmpeg." }
 
 Step "Instalando dependencias de Luis..."
 & $bun install --frozen-lockfile
