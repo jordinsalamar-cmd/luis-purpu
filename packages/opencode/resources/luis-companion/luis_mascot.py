@@ -1,6 +1,7 @@
 import argparse
 import base64
 import json
+import math
 import os
 import subprocess
 import time
@@ -221,6 +222,8 @@ class LuisOverlay:
         self.controls_root.protocol("WM_DELETE_WINDOW", self.close)
         self.controls_root.bind("<Button-3>", self.close)
         self.controls_drag_origin = None
+        self.roaming = False
+        self.roam_started = 0.0
         self.status = tk.Label(self.controls_root, text="lista", fg="#d8e2ff", bg=TRANSPARENT,
                                font=("Consolas", 10, "bold"))
         self.status.place(x=0, y=0, width=WIDTH, height=24)
@@ -276,6 +279,23 @@ class LuisOverlay:
         start_x, start_y, window_x, window_y = self.controls_drag_origin
         self.controls_root.geometry(f"+{window_x + event.x_root-start_x}+{window_y + event.y_root-start_y}")
 
+    def update_roaming(self, active):
+        if not active:
+            self.roaming = False
+            return
+        if not self.roaming:
+            self.roaming = True
+            self.roam_started = time.monotonic()
+        elapsed = time.monotonic() - self.roam_started
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        max_x = max(0, screen_width - WIDTH - 18)
+        max_y = max(24, screen_height - 360 - 82 - 18)
+        x = int(max_x * (0.5 + 0.43 * math.sin(elapsed * 0.42)))
+        y = int(24 + max(0, max_y - 24) * (0.5 + 0.40 * math.cos(elapsed * 0.57)))
+        self.root.geometry(f"{WIDTH}x360+{x}+{y}")
+        self.controls_root.geometry(f"{WIDTH}x82+{x}+{y + 360}")
+
     def update_state(self):
         current = read_json(self.args.state)
         if current != self.current_state:
@@ -288,11 +308,13 @@ class LuisOverlay:
                       "crossed": "esperando", "loading": "cargando", "confirm": "confirmando",
                       "success": "terminado", "error": "hubo un error", "sleeping": "durmiendo",
                       "music": "escuchando música", "dance": "bailando", "dancing": "bailando",
+                      "roaming": "moviéndose",
                       "muted": "silenciada"}
             self.status.configure(text=labels.get(current.get("status"), current.get("status", "lista")))
             self.draw_controls()
             if self.page:
                 self.page.evaluate("status => window.__luisState(status)", current.get("status", "idle"))
+        self.update_roaming(current.get("status") in {"dancing", "dance", "music", "roaming"})
         if current.get("visible") is False or current.get("status") == "exit":
             self.close()
             return
