@@ -69,6 +69,16 @@ $bun = Find-Bun
 if (-not $bun) {
   Step "Bun no está instalado; instalándolo para este usuario..."
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://bun.sh/install.ps1 | iex"
+  Refresh-ProcessPath
+  $bun = Find-Bun
+}
+if (-not $bun) {
+  $winget = Get-Command winget -ErrorAction SilentlyContinue
+  if (-not $winget) { throw "No se pudo instalar Bun desde bun.sh y no encuentro winget. Instala App Installer y repite la instalación." }
+  Step "La descarga directa de Bun falló; instalándolo con winget..."
+  & $winget.Source install --id Oven-sh.Bun --exact --source winget --accept-source-agreements --accept-package-agreements --silent
+  if ($LASTEXITCODE -ne 0) { throw "winget no pudo instalar Bun (código $LASTEXITCODE)." }
+  Refresh-ProcessPath
   $bun = Find-Bun
 }
 if (-not $bun) { throw "No se pudo localizar Bun después de instalarlo." }
