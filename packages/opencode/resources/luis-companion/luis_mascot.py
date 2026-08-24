@@ -44,20 +44,34 @@ const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,preserv
 renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;
 scene.add(new THREE.HemisphereLight(0xd9e2ff,0x151827,2.3));
 const key=new THREE.DirectionalLight(0xffffff,2.8);key.position.set(1.5,3,4);scene.add(key);
-let vrm=null,baseY=0,last=performance.now(),state='idle',leftArm=null,rightArm=null,leftHand=null,rightHand=null,head=null;
+let vrm=null,baseY=0,last=performance.now(),state='idle',leftArm=null,rightArm=null,leftForearm=null,rightForearm=null,leftHand=null,rightHand=null,leftLeg=null,rightLeg=null,hips=null,chest=null,head=null;
+const baseRotations=new Map();
+const aliases={ready:'idle',looking:'look',greeting:'greet',listening:'listening',speaking:'speaking',thinking:'thinking','head-touch':'head-touch',crossed:'crossed',reading:'reading',coding:'coding',typing:'typing',reviewing:'reviewing',searching:'searching',graph:'graph',opening:'acting',acting:'acting',pointing:'pointing',mouse:'mouse',loading:'loading',confirm:'confirm',error:'error',success:'success',sleeping:'sleeping',music:'dancing',dance:'dancing',dancing:'dancing',bailando:'dancing',working:'coding',idle:'idle'};
+function actionFor(value){return aliases[String(value||'idle').toLowerCase()]||'idle'}
+function rememberBone(name){const bone=vrm.humanoid?.getNormalizedBoneNode(name);if(bone){baseRotations.set(bone,{x:bone.rotation.x,y:bone.rotation.y,z:bone.rotation.z})}return bone}
+function pose(bone,x=0,y=0,z=0){if(!bone)return;const base=baseRotations.get(bone)||{x:0,y:0,z:0};bone.rotation.set(base.x+x,base.y+y,base.z+z)}
+function resetPose(){for(const [bone,base] of baseRotations)bone.rotation.set(base.x,base.y,base.z)}
 function normalize(){
   const box=new THREE.Box3().setFromObject(vrm.scene),size=box.getSize(new THREE.Vector3());
   const scale=1.35/Math.max(size.y,.01);vrm.scene.scale.setScalar(scale);
   const placed=new THREE.Box3().setFromObject(vrm.scene),center=placed.getCenter(new THREE.Vector3());
   vrm.scene.position.set(-center.x,-placed.min.y,-center.z);baseY=vrm.scene.position.y;
   try{
-    leftArm=vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
-    rightArm=vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
-    leftHand=vrm.humanoid?.getNormalizedBoneNode('leftHand');
-    rightHand=vrm.humanoid?.getNormalizedBoneNode('rightHand');
-    head=vrm.humanoid?.getNormalizedBoneNode('head');
+    leftArm=rememberBone('leftUpperArm');
+    rightArm=rememberBone('rightUpperArm');
+    leftForearm=rememberBone('leftLowerArm');
+    rightForearm=rememberBone('rightLowerArm');
+    leftHand=rememberBone('leftHand');
+    rightHand=rememberBone('rightHand');
+    leftLeg=rememberBone('leftLowerLeg');
+    rightLeg=rememberBone('rightLowerLeg');
+    hips=rememberBone('hips');
+    chest=rememberBone('chest')||rememberBone('spine');
+    head=rememberBone('head');
     if(leftArm) leftArm.rotation.z=-1.05;
     if(rightArm) rightArm.rotation.z=1.05;
+    baseRotations.set(leftArm,{x:leftArm.rotation.x,y:leftArm.rotation.y,z:leftArm.rotation.z});
+    baseRotations.set(rightArm,{x:rightArm.rotation.x,y:rightArm.rotation.y,z:rightArm.rotation.z});
   }catch(_error){}
   camera.lookAt(0,.64,0);
 }
@@ -67,16 +81,84 @@ window.__luisState=s=>{state=s||'idle'};
 function animate(now){
   const delta=Math.min((now-last)/1000,.1);last=now;
   if(vrm){
-    vrm.scene.rotation.y=Math.sin(now*.00055)*.035;
-    vrm.scene.position.y=baseY+Math.sin(now*.0011)*.012;
-    const talking=state==='speaking', wave=talking?Math.sin(now*.006)*.08:Math.sin(now*.0014)*.025;
-    if(leftArm) leftArm.rotation.z=-1.05-wave;
-    if(rightArm) rightArm.rotation.z=1.05+wave;
-    if(leftHand) leftHand.rotation.x=Math.sin(now*.002)*.08;
-    if(rightHand) rightHand.rotation.x=Math.cos(now*.0022)*.08;
-    if(head){head.rotation.y=Math.sin(now*.0008)*.08;head.rotation.x=Math.sin(now*.0011)*.035}
+    const t=now*.001, action=actionFor(state), pulse=Math.sin(t*2.4), slow=Math.sin(t*1.2);
+    resetPose();
+    vrm.scene.rotation.y=Math.sin(t*.55)*.035;
+    vrm.scene.rotation.z=0;
+    vrm.scene.position.y=baseY+Math.sin(t*1.1)*.012;
+    if(chest) pose(chest,0,slow*.025,0);
+    if(hips) pose(hips,0,0,slow*.018);
+    switch(action){
+      case 'look':
+        pose(head,0,Math.sin(t*1.4)*.22,0);
+        break;
+      case 'greet':
+        pose(rightArm,-.35,0,-.35+Math.sin(t*5)*.12); pose(rightForearm,-.35,0,0); pose(rightHand,0,0,Math.sin(t*5)*.2);
+        break;
+      case 'listening':
+        pose(head,.05,-.12,.16); pose(rightArm,-.75,0,-.25); pose(rightForearm,-.5,0,.2);
+        break;
+      case 'speaking':
+        pose(leftArm,0,0,-pulse*.16); pose(rightArm,0,0,pulse*.16); pose(leftHand,0,0,pulse*.18); pose(rightHand,0,0,-pulse*.18);
+        pose(head,Math.sin(t*2.1)*.035,Math.sin(t*1.7)*.08,0);
+        break;
+      case 'thinking':
+        pose(head,.1,-.1,.08); pose(leftArm,-.9,0,.28); pose(leftForearm,-.8,.15,.2); pose(leftHand,-.15,0,0);
+        break;
+      case 'head-touch':
+        pose(head,-.08,0,.12); pose(rightArm,-1.05,0,.08); pose(rightForearm,-.85,0,.2); pose(rightHand,-.25,0,0);
+        break;
+      case 'crossed':
+        pose(leftArm,-.3,0,.52); pose(rightArm,-.3,0,-.52); pose(leftForearm,-.65,.25,.2); pose(rightForearm,-.65,-.25,-.2);
+        break;
+      case 'reading':
+        pose(head,.12,0,0); pose(leftArm,-.55,0,.3); pose(rightArm,-.55,0,-.3); pose(leftForearm,-.35,0,0); pose(rightForearm,-.35,0,0);
+        break;
+      case 'coding':
+        pose(leftArm,-.35,0,.2); pose(rightArm,-.45,0,-.25); pose(leftForearm,-.35,0,0); pose(rightForearm,-.35,0,0); pose(rightHand,Math.sin(t*8)*.12,0,0);
+        break;
+      case 'typing':
+        pose(leftArm,-.48,0,.28); pose(rightArm,-.48,0,-.28); pose(leftForearm,-.45,0,0); pose(rightForearm,-.45,0,0); pose(leftHand,Math.sin(t*9)*.12,0,0); pose(rightHand,Math.cos(t*9)*.12,0,0);
+        break;
+      case 'reviewing':
+        pose(head,.08,-.15,0); pose(rightArm,-.65,0,-.1); pose(rightForearm,-.45,0,0);
+        break;
+      case 'searching':
+        pose(head,0,Math.sin(t*2)*.25,0); pose(chest,0,Math.sin(t*2)*.06,0);
+        break;
+      case 'graph':
+        pose(leftArm,-.55,0,.6); pose(rightArm,-.55,0,-.6); pose(leftHand,0,0,.2); pose(rightHand,0,0,-.2);
+        break;
+      case 'acting':
+      case 'pointing':
+        pose(head,.02,.14,0); pose(rightArm,-.45,0,-.62); pose(rightForearm,-.2,0,-.15); pose(rightHand,0,0,-.25);
+        break;
+      case 'mouse':
+        pose(rightArm,-.5,0,-.35); pose(rightForearm,-.55,0,0); pose(rightHand,Math.sin(t*7)*.1,0,0);
+        break;
+      case 'loading':
+        pose(chest,0,slow*.08,0); pose(head,slow*.05,0,0);
+        break;
+      case 'confirm':
+      case 'success':
+        pose(leftArm,-1.15,0,.25); pose(rightArm,-1.15,0,-.25); pose(leftHand,0,0,.25); pose(rightHand,0,0,-.25); pose(chest,0,0,slow*.03);
+        break;
+      case 'error':
+        pose(head,0,Math.sin(t*8)*.18,0); pose(leftArm,.1,0,.18); pose(rightArm,.1,0,-.18);
+        break;
+      case 'sleeping':
+        pose(head,.35,0,.2); pose(leftArm,.12,0,.05); pose(rightArm,.12,0,-.05); pose(chest,.04,0,0);
+        break;
+      case 'dancing':
+        vrm.scene.rotation.z=Math.sin(t*3.2)*.09; pose(hips,0,0,Math.sin(t*3.2)*.08); pose(chest,0,0,-Math.sin(t*3.2)*.06);
+        pose(leftArm,-.35,0,.65+Math.sin(t*5)*.22); pose(rightArm,-.35,0,-.65-Math.sin(t*5)*.22); pose(leftForearm,-.25,0,.2); pose(rightForearm,-.25,0,-.2);
+        pose(leftLeg,Math.max(0,Math.sin(t*3.2))*.18,0,0); pose(rightLeg,Math.max(0,-Math.sin(t*3.2))*.18,0,0); pose(head,Math.sin(t*3.2)*.08,0,0);
+        break;
+      default:
+        pose(leftArm,0,0,-slow*.08); pose(rightArm,0,0,slow*.08); pose(head,Math.sin(t*.8)*.025,Math.sin(t*.65)*.05,0);
+    }
     if(vrm.expressionManager){
-      const mouth=state==='speaking'?(Math.sin(now*.018)*.5+.5):0;
+      const mouth=action==='speaking'?(Math.sin(now*.018)*.5+.5):0;
       vrm.expressionManager.setValue('aa',mouth);
     }
     vrm.update(delta)
@@ -199,8 +281,13 @@ class LuisOverlay:
         if current != self.current_state:
             self.current_state = current
             labels = {"idle": "lista", "listening": "escuchando", "thinking": "pensando",
-                      "speaking": "hablando", "working": "trabajando", "acting": "actuando",
-                      "reading": "leyendo", "sleeping": "durmiendo", "music": "escuchando música",
+                      "speaking": "hablando", "working": "trabajando", "coding": "escribiendo código",
+                      "typing": "tecleando", "acting": "actuando", "pointing": "señalando",
+                      "reading": "leyendo", "reviewing": "revisando", "searching": "buscando",
+                      "graph": "analizando el grafo", "head-touch": "analizando",
+                      "crossed": "esperando", "loading": "cargando", "confirm": "confirmando",
+                      "success": "terminado", "error": "hubo un error", "sleeping": "durmiendo",
+                      "music": "escuchando música", "dance": "bailando", "dancing": "bailando",
                       "muted": "silenciada"}
             self.status.configure(text=labels.get(current.get("status"), current.get("status", "lista")))
             self.draw_controls()

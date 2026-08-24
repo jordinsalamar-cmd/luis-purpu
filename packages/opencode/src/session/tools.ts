@@ -23,6 +23,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { isRecord } from "@/util/record"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { setLuisStatus } from "@/luis/companion"
 
 const MCP_RESOURCE_TOOLS = {
   list: "list_mcp_resources",
@@ -37,6 +38,15 @@ const SUPPORTED_MCP_RESOURCE_ATTACHMENT_MIMES = new Set([
   "image/png",
   "image/webp",
 ])
+
+function luisStatusForTool(name: string) {
+  const tool = name.toLowerCase()
+  if (["read", "glob", "grep", "websearch", "webfetch", "list_mcp_resources", "read_mcp_resource"].some((item) => tool.includes(item))) return "reading"
+  if (["edit", "write", "apply_patch", "bash", "shell", "code"].some((item) => tool.includes(item))) return "coding"
+  if (tool.includes("desktop")) return "acting"
+  if (tool.includes("task") || tool.includes("question")) return "thinking"
+  return "working"
+}
 
 export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   agent: Agent.Info
@@ -108,6 +118,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
               { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
               { args },
             )
+            yield* Effect.sync(() => setLuisStatus(luisStatusForTool(item.id))).pipe(Effect.ignore)
             const result = yield* item.execute(args, ctx)
             const output = {
               ...result,
@@ -123,6 +134,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
               { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
               output,
             )
+            yield* Effect.sync(() => setLuisStatus("thinking")).pipe(Effect.ignore)
             if (options.abortSignal?.aborted) {
               yield* input.processor.completeToolCall(options.toolCallId, output)
             }
