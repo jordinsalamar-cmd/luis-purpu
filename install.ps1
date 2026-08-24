@@ -114,9 +114,8 @@ New-Item -ItemType Directory -Path (Split-Path $portable) -Force | Out-Null
 Copy-Item -LiteralPath $build -Destination $portable -Recurse -Force
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if (-not (($userPath -split ";") -contains $ProjectRoot)) {
-  [Environment]::SetEnvironmentVariable("Path", (($userPath, $ProjectRoot | Where-Object { $_ }) -join ";"), "User")
-}
+$pathEntries = @($userPath -split ";" | Where-Object { $_ -and ($_ -ne $ProjectRoot) })
+[Environment]::SetEnvironmentVariable("Path", (($ProjectRoot, $pathEntries) -join ";"), "User")
 $env:Path = "$ProjectRoot;$env:Path"
 
 Step "Validando ejecutable y launcher..."
