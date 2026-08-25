@@ -103,6 +103,34 @@ function isOrphanedInterruptedTool(part: SessionV1.ToolPart) {
   return part.state.status === "error" && part.state.metadata?.interrupted === true
 }
 
+function shouldNarrateLuisTask(text: string) {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized) return false
+  return (
+    normalized.length >= 40 ||
+    /\b(crea|crear|haz|hacer|abre|abrir|escribe|escribir|programa|programar|juega|jugar|busca|buscar|instala|instalar|revisa|revisar|modifica|modificar|descarga|descargar|ejecuta|ejecutar)\b/.test(
+      normalized,
+    )
+  )
+}
+
+function createLuisProgressNarrator() {
+  let buffer = ""
+  let spoken = false
+
+  return (delta: string) => {
+    if (spoken) return
+    buffer += delta
+    const clean = buffer.replace(/```[\s\S]*?```/g, "").replace(/\s+/g, " ").trim()
+    if (clean.length < 28) return
+
+    const sentence = clean.match(/^(.{28,220}?[.!?])(?:\s|$)/)?.[1] ?? (clean.length >= 150 ? clean.slice(0, 150) : "")
+    if (!sentence) return
+    spoken = true
+    speakLuis(sentence)
+  }
+}
+
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
   readonly prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error>
@@ -1088,6 +1116,11 @@ const layer = Layer.effect(
 
       if (input.noReply === true) return message
       yield* Effect.sync(() => setLuisStatus("thinking")).pipe(Effect.ignore)
+      if (shouldNarrateLuisTask(userText)) {
+        yield* Effect.sync(() => speakLuis("Entendido, jefe. Ya empecé a trabajar y te iré contando el progreso.")).pipe(
+          Effect.ignore,
+        )
+      }
       const response = yield* loop({ sessionID: input.sessionID, personality })
       const assistantText = response.parts
         .filter((part): part is SessionV1.TextPart => part.type === "text")
@@ -1239,6 +1272,10 @@ const layer = Layer.effect(
           }
           yield* sessions.updateMessage(msg)
 
+          // Each model/tool step gets its own short spoken progress update.
+          // The final response is still spoken by `prompt` after the loop ends.
+          const narrateProgress = createLuisProgressNarrator()
+
           const finalizeInterruptedAssistant = Effect.gen(function* () {
             if (msg.time.completed) return
             msg.error ??= MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
@@ -1254,6 +1291,7 @@ const layer = Layer.effect(
               assistantMessage: msg,
               sessionID,
               model,
+              onTextDelta: (text) => Effect.sync(() => narrateProgress(text)),
             })
             .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
 

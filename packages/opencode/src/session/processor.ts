@@ -51,6 +51,8 @@ type Input = {
   assistantMessage: SessionV1.Assistant
   sessionID: SessionID
   model: Provider.Model
+  /** Optional live narration hook for the companion while the model is still working. */
+  onTextDelta?: (text: string) => Effect.Effect<void>
 }
 
 export interface Interface {
@@ -507,6 +509,7 @@ const layer = Layer.effect(
               field: "text",
               delta: value.text,
             })
+            if (input.onTextDelta) yield* input.onTextDelta(value.text)
             return
 
           case "text-end":
