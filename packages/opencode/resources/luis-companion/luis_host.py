@@ -30,6 +30,23 @@ def read_json(path):
         return None
 
 
+def claim_json(path):
+    """Claim a command atomically so a newer command cannot be deleted by a reader."""
+    source = Path(path)
+    claimed = source.with_name(f"{source.name}.{os.getpid()}.processing")
+    try:
+        os.replace(source, claimed)
+    except OSError:
+        return None
+    try:
+        return read_json(claimed)
+    finally:
+        try:
+            claimed.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def clean_text(value):
     return re.sub(r"\x1b\[[0-9;]*m", "", str(value or "")).strip()
 
@@ -50,6 +67,8 @@ class LuisHost:
         self.mascot_process = None
         self.busy = False
         self.speech_lock = threading.Lock()
+        self.speech_process = None
+        self.speech_cancel = threading.Event()
         self.voice = True
         self.listening = False
         self.vision_enabled = os.environ.get("LUIS_VISION", "1").strip().lower() not in {"0", "false", "off"}
@@ -216,12 +235,21 @@ class LuisHost:
             self.listening = False
             self.save_state(status="idle", error="El micrófono se cerró; pulsa el botón para reintentarlo.")
 
-    def submit_to_terminal(self, request):
+    def submit_to_terminal(self, request, source="microfono"):
         text = request.strip()
         if not text:
             return
-        write_json(self.input_file, {"text": text, "source": "microfono", "created": time.time()})
+        write_json(self.input_file, {"text": text, "source": source, "created": time.time()})
         self.save_state(status="idle")
+
+    def stop_speech(self):
+        self.speech_cancel.set()
+        process = self.speech_process
+        if process and process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
 
     def answer(self, request):
         if self.busy:
@@ -257,9 +285,10 @@ class LuisHost:
 
     def speak(self, answer):
         text = clean_speech(answer)
-        if not text:
+        if not text or not self.voice:
             return False
         with self.speech_lock:
+            self.speech_cancel.clear()
             if self.voice_mode == "offline":
                 return self.speak_offline(text)
             if self.voice_mode == "online":
@@ -269,7 +298,7 @@ class LuisHost:
             return self.speak_offline(text)
 
     def speak_online(self, text):
-        if not self.ffplay or not self.tts_python:
+        if not self.ffplay or not self.tts_python or not self.voice or self.speech_cancel.is_set():
             return False
         output = Path(tempfile.gettempdir()) / f"luis-voz-{os.getpid()}-{int(time.time() * 1000)}.mp3"
         try:
@@ -296,18 +325,24 @@ class LuisHost:
             )
             if generated.returncode != 0 or not output.exists():
                 return False
-            played = subprocess.run(
+            if not self.voice or self.speech_cancel.is_set():
+                return False
+            self.speech_process = subprocess.Popen(
                 [self.ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(output)],
                 creationflags=CREATE_NO_WINDOW,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=90,
-                check=False,
             )
-            return played.returncode == 0
+            while self.speech_process.poll() is None:
+                if not self.voice or self.speech_cancel.is_set() or self.stop_event.is_set():
+                    self.stop_speech()
+                    return False
+                time.sleep(0.05)
+            return self.speech_process.returncode == 0
         except (OSError, subprocess.SubprocessError):
             return False
         finally:
+            self.speech_process = None
             try:
                 output.unlink(missing_ok=True)
             except OSError:
@@ -321,15 +356,23 @@ class LuisHost:
             "if(-not $v){$v=$s.GetInstalledVoices() | Where-Object {$_.VoiceInfo.Name -eq 'Microsoft Raul'} | Select-Object -First 1}; "
             "if($v){$s.SelectVoice($v.VoiceInfo.Name)}; $s.Rate=1; $s.Volume=100; $s.Speak($env:LUIS_SPEECH_TEXT); $s.Dispose()"
         )
-        result = subprocess.run(
+        process = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
             creationflags=CREATE_NO_WINDOW,
             env={**os.environ, "LUIS_TTS_VOICE": self.voice_name, "LUIS_SPEECH_TEXT": text},
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            check=False,
         )
-        return result.returncode == 0
+        self.speech_process = process
+        try:
+            while process.poll() is None:
+                if not self.voice or self.speech_cancel.is_set() or self.stop_event.is_set():
+                    self.stop_speech()
+                    return False
+                time.sleep(0.05)
+            return process.returncode == 0
+        finally:
+            self.speech_process = None
 
     def speak_from_terminal(self, text):
         if not self.voice:
@@ -344,15 +387,13 @@ class LuisHost:
 
     def commands(self):
         while not self.stop_event.is_set():
-            command = read_json(self.args.command)
+            command = claim_json(self.args.command)
             if command:
-                try:
-                    Path(self.args.command).unlink(missing_ok=True)
-                except OSError:
-                    pass
                 action = command.get("action")
                 if action == "toggle_voice":
                     self.voice = not self.voice
+                    if not self.voice:
+                        self.stop_speech()
                     self.save_state(status="idle" if self.voice else "muted")
                 elif action == "toggle_listener":
                     if self.listening:
@@ -374,6 +415,8 @@ class LuisHost:
                         args=(str(command["text"]),),
                         daemon=True,
                     ).start()
+                elif action in {"submit", "message"} and command.get("text"):
+                    self.submit_to_terminal(str(command["text"]), source="panel")
                 elif action == "status":
                     self.save_state(status=str(command.get("status") or "idle"))
                 elif action == "exit":

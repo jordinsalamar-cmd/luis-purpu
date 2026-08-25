@@ -186,8 +186,8 @@ def write_json(path, value):
         pass
 
 
-def send_command(path, action):
-    write_json(path, {"action": action})
+def send_command(path, action, **payload):
+    write_json(path, {"action": action, **payload})
 
 
 class LuisOverlay:
@@ -200,7 +200,6 @@ class LuisOverlay:
         self.root.wm_attributes("-topmost", True)
         self.root.geometry(self.position())
         self.root.protocol("WM_DELETE_WINDOW", self.close)
-        self.root.bind("<Button-3>", self.close)
         self.root.bind("<Escape>", self.close)
         self.drag_origin = None
         self.image = None
@@ -212,7 +211,6 @@ class LuisOverlay:
         self.image_label.place(x=10, y=6, width=CANVAS_WIDTH, height=CANVAS_HEIGHT)
         self.image_label.bind("<ButtonPress-1>", self.drag_start)
         self.image_label.bind("<B1-Motion>", self.drag_move)
-        self.image_label.bind("<Button-3>", self.close)
         self.controls_root = tk.Toplevel(self.root)
         self.controls_root.overrideredirect(True)
         self.controls_root.configure(bg=TRANSPARENT)
@@ -220,8 +218,8 @@ class LuisOverlay:
         self.controls_root.wm_attributes("-topmost", True)
         self.controls_root.geometry(self.controls_position())
         self.controls_root.protocol("WM_DELETE_WINDOW", self.close)
-        self.controls_root.bind("<Button-3>", self.close)
         self.controls_drag_origin = None
+        self.message_window = None
         self.roaming = False
         self.roam_started = 0.0
         self.status = tk.Label(self.controls_root, text="lista", fg="#d8e2ff", bg=TRANSPARENT,
@@ -231,7 +229,6 @@ class LuisOverlay:
                                   bd=0, highlightthickness=0)
         self.controls.place(x=0, y=24)
         self.draw_controls()
-        self.controls.bind("<Button-3>", self.close)
         self.controls.bind("<ButtonPress-1>", self.controls_drag_start)
         self.controls.bind("<B1-Motion>", self.controls_drag_move)
 
@@ -258,8 +255,51 @@ class LuisOverlay:
         self.controls.create_arc(181, 22, 209, 43, start=180, extent=180, outline="#e4ecff", width=2, tags="mic")
         self.controls.create_line(195, 43, 195, 48, fill="#e4ecff", width=2, tags="mic")
         self.controls.create_line(188, 49, 202, 49, fill="#e4ecff", width=2, tags="mic")
+        self.controls.create_oval(240, 2, 290, 52, outline="#86b7ff", width=2, fill="#111a34", tags="message")
+        self.controls.create_rectangle(252, 16, 278, 35, outline="#e4ecff", width=2, tags="message")
+        self.controls.create_polygon(257, 35, 262, 35, 257, 41, fill="#e4ecff", outline="#e4ecff", tags="message")
+        self.controls.create_line(257, 21, 273, 21, fill="#e4ecff", width=2, tags="message")
+        self.controls.create_line(257, 26, 270, 26, fill="#e4ecff", width=2, tags="message")
         self.controls.tag_bind("voice", "<Button-1>", lambda _e: send_command(self.args.command, "toggle_voice"))
         self.controls.tag_bind("mic", "<Button-1>", lambda _e: send_command(self.args.command, "toggle_listener"))
+        self.controls.tag_bind("message", "<Button-1>", lambda _e: self.open_message_box())
+
+    def open_message_box(self):
+        if self.message_window and self.message_window.winfo_exists():
+            self.message_window.deiconify()
+            self.message_window.lift()
+            self.message_entry.focus_set()
+            return
+
+        window = tk.Toplevel(self.controls_root)
+        self.message_window = window
+        window.title("Escribir a Luis")
+        window.configure(bg="#111827")
+        window.resizable(False, False)
+        window.attributes("-topmost", True)
+        x = max(0, self.controls_root.winfo_x() - 55)
+        y = max(24, self.controls_root.winfo_y() - 105)
+        window.geometry(f"360x100+{x}+{y}")
+        window.protocol("WM_DELETE_WINDOW", window.destroy)
+
+        self.message_entry = tk.Entry(window, bg="#20283d", fg="#f3f6ff", insertbackground="#ffffff",
+                                      relief="flat", font=("Segoe UI", 11))
+        self.message_entry.pack(fill="x", padx=12, pady=(12, 8), ipady=7)
+
+        def submit(_event=None):
+            text = self.message_entry.get().strip()
+            if not text:
+                return "break"
+            send_command(self.args.command, "submit", text=text)
+            window.destroy()
+            self.message_window = None
+            return "break"
+
+        self.message_entry.bind("<Return>", submit)
+        self.message_entry.focus_set()
+        tk.Button(window, text="Enviar", command=submit, bg="#536dfe", fg="white",
+                  activebackground="#7184ff", activeforeground="white", relief="flat",
+                  font=("Segoe UI", 9, "bold")).pack(pady=(0, 10))
 
     def drag_start(self, event):
         self.drag_origin = (event.x_root, event.y_root, self.root.winfo_x(), self.root.winfo_y())
@@ -336,6 +376,8 @@ class LuisOverlay:
     def close(self, _event=None):
         send_command(self.args.command, "exit")
         try:
+            if self.message_window and self.message_window.winfo_exists():
+                self.message_window.destroy()
             self.root.destroy()
             self.controls_root.destroy()
         except tk.TclError:

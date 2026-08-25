@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -16,6 +16,9 @@ function resourceDirectory() {
 
 const stateFile = () => join(tmpdir(), "luis-companion-state.json")
 const commandFile = () => join(tmpdir(), "luis-companion-command.json")
+const inputFile = () => join(tmpdir(), "luis-companion-input.json")
+const inputListeners = new Set<(text: string) => void>()
+let inputPoller: ReturnType<typeof setInterval> | undefined
 
 function writeCompanionError(message: string) {
   try {
@@ -49,6 +52,32 @@ function companionHostAlive() {
     return true
   } catch {
     return false
+  }
+}
+
+function pollLuisInput() {
+  try {
+    const payload = JSON.parse(readFileSync(inputFile(), "utf8")) as { text?: unknown }
+    unlinkSync(inputFile())
+    const text = typeof payload.text === "string" ? payload.text.trim() : ""
+    if (!text) return
+    for (const listener of [...inputListeners]) listener(text)
+  } catch {
+    // The companion writes atomically; a missing or half-written file is normal.
+  }
+}
+
+export function onLuisInput(listener: (text: string) => void) {
+  if (process.platform !== "win32" || process.env.LUIS_COMPANION === "0") return () => {}
+  inputListeners.add(listener)
+  ensureLuisCompanion()
+  inputPoller ??= setInterval(pollLuisInput, 120)
+  return () => {
+    inputListeners.delete(listener)
+    if (inputListeners.size === 0 && inputPoller) {
+      clearInterval(inputPoller)
+      inputPoller = undefined
+    }
   }
 }
 

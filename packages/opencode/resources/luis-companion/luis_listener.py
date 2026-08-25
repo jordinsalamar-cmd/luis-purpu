@@ -102,7 +102,10 @@ def normalize(text):
 
 
 def wake_words(value):
-    return [normalize(item.strip()) for item in re.split(r"[,|]", value or "") if item.strip()]
+    words = [normalize(item.strip()) for item in re.split(r"[,|]", value or "") if item.strip()]
+    if "luis" in words:
+        words.extend(["luiz", "lui"])
+    return list(dict.fromkeys(words))
 
 
 def tail_after_wake(text, wakes):
@@ -255,7 +258,7 @@ def main():
                         elif time.monotonic() > command_deadline:
                             command_recognizer = None
                             command_audio = []
-                    command_deadline = time.monotonic() + 6.0
+                    command_deadline = time.monotonic() + 8.0
                     continue
 
                 wake_audio.append(data)
@@ -275,7 +278,7 @@ def main():
                         else:
                             command_recognizer = KaldiRecognizer(model, args.sample_rate)
                             command_audio = []
-                            command_deadline = time.monotonic() + 6.0
+                            command_deadline = time.monotonic() + 8.0
                             emit({"type": "listening", "wake": args.wake})
                         wake_recognizer = KaldiRecognizer(model, args.sample_rate)
                         wake_audio = []

@@ -10,6 +10,7 @@
 // Resolves when the footer closes and all in-flight work finishes.
 import * as Locale from "@/util/locale"
 import { MessageID, PartID } from "@/session/schema"
+import { onLuisInput } from "@/luis/companion"
 import { isExitCommand, isNewCommand } from "./prompt.shared"
 import type { FooterApi, FooterEvent, FooterQueuedPrompt, RunPrompt } from "./types"
 
@@ -317,6 +318,9 @@ export async function runPromptQueue(input: QueueInput): Promise<void> {
   const offPrompt = input.footer.onPrompt((prompt) => {
     submit(prompt)
   })
+  const offLuisInput = onLuisInput((text) => {
+    submit({ text, parts: [] })
+  })
   const offClose = input.footer.onClose(() => {
     close()
   })
@@ -341,6 +345,7 @@ export async function runPromptQueue(input: QueueInput): Promise<void> {
     await done.promise
   } finally {
     offPrompt()
+    offLuisInput()
     offClose()
     offRemoveQueued()
     close()
