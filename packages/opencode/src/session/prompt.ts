@@ -114,7 +114,7 @@ function shouldNarrateLuisTask(text: string) {
   )
 }
 
-function createLuisProgressNarrator() {
+function createLuisProgressNarrator(onSpoken: (text: string) => void) {
   let buffer = ""
   let spoken = false
 
@@ -127,8 +127,17 @@ function createLuisProgressNarrator() {
     const sentence = clean.match(/^(.{28,220}?[.!?])(?:\s|$)/)?.[1] ?? (clean.length >= 150 ? clean.slice(0, 150) : "")
     if (!sentence) return
     spoken = true
+    onSpoken(sentence)
     speakLuis(sentence)
   }
+}
+
+function removeRepeatedLuisProgress(text: string, spoken: string[]) {
+  let remaining = text.trim()
+  for (const progress of spoken) {
+    if (remaining.startsWith(progress)) remaining = remaining.slice(progress.length).trim()
+  }
+  return remaining || "Listo, jefe. La tarea terminó."
 }
 
 export interface Interface {
@@ -173,6 +182,7 @@ const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
     const { db } = database
+    const luisProgressBySession = new Map<SessionID, string[]>()
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1116,6 +1126,7 @@ const layer = Layer.effect(
 
       if (input.noReply === true) return message
       yield* Effect.sync(() => setLuisStatus("thinking")).pipe(Effect.ignore)
+      luisProgressBySession.delete(input.sessionID)
       if (shouldNarrateLuisTask(userText)) {
         yield* Effect.sync(() => speakLuis("Entendido, jefe. Ya empecé a trabajar y te iré contando el progreso.")).pipe(
           Effect.ignore,
@@ -1126,6 +1137,8 @@ const layer = Layer.effect(
         .filter((part): part is SessionV1.TextPart => part.type === "text")
         .map((part) => part.text)
         .join("\n")
+      const spokenProgress = luisProgressBySession.get(input.sessionID) ?? []
+      luisProgressBySession.delete(input.sessionID)
       yield* Effect.promise(() =>
         recordLuisMemory({
           sessionID: input.sessionID,
@@ -1136,7 +1149,7 @@ const layer = Layer.effect(
         }),
       ).pipe(Effect.ignore)
       yield* Effect.promise(() => settleLuisPersonality({ sessionID: input.sessionID, text: assistantText })).pipe(Effect.ignore)
-      yield* Effect.sync(() => speakLuis(assistantText)).pipe(Effect.ignore)
+      yield* Effect.sync(() => speakLuis(removeRepeatedLuisProgress(assistantText, spokenProgress))).pipe(Effect.ignore)
       return response
     })
 
@@ -1156,6 +1169,8 @@ const layer = Layer.effect(
         let step = 0
         const attemptedFallbacks = new Set<string>()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        const spokenProgress = luisProgressBySession.get(sessionID) ?? []
+        luisProgressBySession.set(sessionID, spokenProgress)
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1274,7 +1289,7 @@ const layer = Layer.effect(
 
           // Each model/tool step gets its own short spoken progress update.
           // The final response is still spoken by `prompt` after the loop ends.
-          const narrateProgress = createLuisProgressNarrator()
+          const narrateProgress = createLuisProgressNarrator((text) => spokenProgress.push(text))
 
           const finalizeInterruptedAssistant = Effect.gen(function* () {
             if (msg.time.completed) return

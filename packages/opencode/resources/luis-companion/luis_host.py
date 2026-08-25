@@ -352,9 +352,12 @@ class LuisHost:
         script = (
             "Add-Type -AssemblyName System.Speech; "
             "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-            "$v=$s.GetInstalledVoices() | Where-Object {$_.VoiceInfo.Name -eq $env:LUIS_TTS_VOICE} | Select-Object -First 1; "
-            "if(-not $v){$v=$s.GetInstalledVoices() | Where-Object {$_.VoiceInfo.Name -eq 'Microsoft Raul'} | Select-Object -First 1}; "
-            "if($v){$s.SelectVoice($v.VoiceInfo.Name)}; $s.Rate=1; $s.Volume=100; $s.Speak($env:LUIS_SPEECH_TEXT); $s.Dispose()"
+            "$voices=$s.GetInstalledVoices(); "
+            "$v=$voices | Where-Object {$_.VoiceInfo.Name -like ('*' + $env:LUIS_TTS_VOICE + '*')} | Select-Object -First 1; "
+            "if(-not $v){$v=$voices | Where-Object {$_.VoiceInfo.Name -match 'Raul|Pablo|David|Mark|Jorge|Diego|George|Guy|Ryan'} | Select-Object -First 1}; "
+            "if(-not $v){$v=$voices | Where-Object {$_.VoiceInfo.Gender -eq 'Male'} | Select-Object -First 1}; "
+            "if(-not $v){$s.Dispose(); exit 2}; "
+            "$s.SelectVoice($v.VoiceInfo.Name); $s.Rate=1; $s.Volume=100; $s.Speak($env:LUIS_SPEECH_TEXT); $s.Dispose()"
         )
         process = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -380,7 +383,7 @@ class LuisHost:
         self.save_state(status="speaking")
         try:
             if not self.speak(text):
-                self.save_state(error="No se pudo reproducir la voz; revisa el volumen o instala edge_tts.")
+                self.save_state(error="No se pudo reproducir la voz masculina; revisa la conexión o instala una voz masculina de Windows.")
         finally:
             if not self.stop_event.is_set():
                 self.save_state(status="idle")
