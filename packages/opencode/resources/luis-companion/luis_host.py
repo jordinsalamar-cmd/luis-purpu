@@ -385,6 +385,7 @@ class LuisHost:
         self.stop_old_host()
         try:
             self.input_file.unlink(missing_ok=True)
+            Path(self.args.command).unlink(missing_ok=True)
         except OSError:
             pass
         self.save_state(status="idle")
