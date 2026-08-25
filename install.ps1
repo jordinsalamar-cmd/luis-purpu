@@ -46,6 +46,31 @@ function Refresh-ProcessPath {
   $env:Path = (($userPath, $machinePath | Where-Object { $_ }) -join ";")
 }
 
+function Install-FfmpegDirect {
+  $toolsRoot = Join-Path $env:LOCALAPPDATA "Luis-Purpu\ffmpeg"
+  $zip = Join-Path $env:TEMP "luis-purpu-ffmpeg.zip"
+  $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+
+  Step "winget no está disponible; descargando FFmpeg directamente..."
+  New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
+  Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip
+  Expand-Archive -LiteralPath $zip -DestinationPath $toolsRoot -Force
+  Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+
+  $ffplayPath = Get-ChildItem -LiteralPath $toolsRoot -Filter "ffplay.exe" -File -Recurse |
+    Select-Object -First 1 -ExpandProperty FullName
+  if (-not $ffplayPath) { throw "No se pudo localizar ffplay después de descargar FFmpeg." }
+
+  $ffmpegBin = Split-Path -Parent $ffplayPath
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $entries = @($userPath -split ";" | Where-Object { $_ })
+  if ($entries -notcontains $ffmpegBin) {
+    [Environment]::SetEnvironmentVariable("Path", (($ffmpegBin, $entries) -join ";"), "User")
+  }
+  $env:Path = "$ffmpegBin;$env:Path"
+  return (Get-Command ffplay -ErrorAction SilentlyContinue)
+}
+
 function Install-WingetPackage([string]$Id, [string]$Label) {
   $winget = Get-Command winget -ErrorAction SilentlyContinue
   if (-not $winget) {
@@ -85,8 +110,12 @@ if (-not $bun) { throw "No se pudo localizar Bun después de instalarlo." }
 
 $ffplay = Get-Command ffplay -ErrorAction SilentlyContinue
 if (-not $ffplay) {
-  Install-WingetPackage "Gyan.FFmpeg.Shared" "FFmpeg (audio para la voz online)"
-  $ffplay = Get-Command ffplay -ErrorAction SilentlyContinue
+  $winget = Get-Command winget -ErrorAction SilentlyContinue
+  if ($winget) {
+    Install-WingetPackage "Gyan.FFmpeg.Shared" "FFmpeg (audio para la voz online)"
+    $ffplay = Get-Command ffplay -ErrorAction SilentlyContinue
+  }
+  if (-not $ffplay) { $ffplay = Install-FfmpegDirect }
 }
 if (-not $ffplay) { throw "No se pudo localizar ffplay después de instalar FFmpeg." }
 
