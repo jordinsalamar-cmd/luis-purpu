@@ -46,6 +46,35 @@ function Refresh-ProcessPath {
   $env:Path = (($userPath, $machinePath | Where-Object { $_ }) -join ";")
 }
 
+function Install-LuisLauncher {
+  param([string]$Root)
+
+  # A stable launcher must win over old global npm/Bun installs. It delegates
+  # to this checkout, so reinstalling or updating the project always changes
+  # what `luis` runs without leaving duplicate versions on PATH.
+  $launcherRoot = Join-Path $env:LOCALAPPDATA "Luis-Purpu\bin"
+  $launcher = Join-Path $launcherRoot "luis.cmd"
+  New-Item -ItemType Directory -Path $launcherRoot -Force | Out-Null
+  $launcherText = @"
+@echo off
+setlocal
+pushd "$Root"
+call "$Root\luis.cmd" %*
+set "LUIS_EXIT=%ERRORLEVEL%"
+popd
+endlocal & exit /b %LUIS_EXIT%
+"@
+  Set-Content -LiteralPath $launcher -Value $launcherText -Encoding ASCII
+
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $pathEntries = @($userPath -split ";" | Where-Object {
+      $_ -and ($_ -ne $Root) -and ($_ -ne $launcherRoot)
+    })
+  [Environment]::SetEnvironmentVariable("Path", (($launcherRoot, $pathEntries) -join ";"), "User")
+  $env:Path = "$launcherRoot;$env:Path"
+  return $launcher
+}
+
 function Install-FfmpegDirect {
   $toolsRoot = Join-Path $env:LOCALAPPDATA "Luis-Purpu\ffmpeg"
   $zip = Join-Path $env:TEMP "luis-purpu-ffmpeg.zip"
@@ -152,14 +181,11 @@ if (Test-Path -LiteralPath $portable) { Remove-Item -LiteralPath $portable -Recu
 New-Item -ItemType Directory -Path (Split-Path $portable) -Force | Out-Null
 Copy-Item -LiteralPath $build -Destination $portable -Recurse -Force
 
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-$pathEntries = @($userPath -split ";" | Where-Object { $_ -and ($_ -ne $ProjectRoot) })
-[Environment]::SetEnvironmentVariable("Path", (($ProjectRoot, $pathEntries) -join ";"), "User")
-$env:Path = "$ProjectRoot;$env:Path"
+$launcher = Install-LuisLauncher -Root $ProjectRoot
 
 Step "Validando ejecutable y launcher..."
-$version = & (Join-Path $ProjectRoot "luis.cmd") --version
+$version = & $launcher --version
 if ($LASTEXITCODE -ne 0) { throw "El launcher no pudo iniciar." }
 Write-Host "Luis-Purpu instalado: $version" -ForegroundColor Green
 Write-Host "Creador: Jordin Ariel Salamar Zambrano" -ForegroundColor DarkGray
-Write-Host "Ejecuta 'luis' en una terminal nueva." -ForegroundColor Green
+Write-Host "Ejecuta 'luis' en una terminal nueva; siempre apuntará a esta versión." -ForegroundColor Green

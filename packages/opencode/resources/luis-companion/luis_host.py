@@ -139,10 +139,16 @@ class LuisHost:
             return False
 
     def vision_loop(self):
-        interval = max(0.75, float(os.environ.get("LUIS_VISION_INTERVAL", "1.5")))
+        # Keep the last screen available without running a high-frequency
+        # capture loop while Luis is idle. The model only receives the image
+        # when it calls desktop(vision); this observer is just a cheap cache.
+        idle_interval = max(2.0, float(os.environ.get("LUIS_VISION_IDLE_INTERVAL", "3.0")))
+        active_interval = max(0.75, float(os.environ.get("LUIS_VISION_INTERVAL", "1.5")))
         while not self.stop_event.is_set() and self.vision_enabled:
             if self.capture_vision():
                 self.save_state(vision_updated=time.time(), vision_error=None)
+            status = str(self.state.get("status", "idle")).lower()
+            interval = idle_interval if status in {"idle", "muted"} else active_interval
             self.stop_event.wait(interval)
 
     def start_vision(self):

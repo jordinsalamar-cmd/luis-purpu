@@ -30,4 +30,6 @@ if /I "%~1"=="companion" (
 ) else (
   "%LUIS_BIN%" --luis %*
 )
+set "LUIS_EXIT=%ERRORLEVEL%"
 endlocal
+exit /b %LUIS_EXIT%
