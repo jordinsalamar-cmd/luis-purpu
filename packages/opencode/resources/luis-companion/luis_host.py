@@ -52,6 +52,9 @@ class LuisHost:
         self.speech_lock = threading.Lock()
         self.voice = True
         self.listening = False
+        self.vision_enabled = os.environ.get("LUIS_VISION", "1").strip().lower() not in {"0", "false", "off"}
+        self.vision_thread = None
+        self.vision_path = Path(tempfile.gettempdir()) / "luis-vision-latest.png"
         self.state = {"visible": True, "voice": True, "listening": False, "status": "idle"}
         self.pid_file = Path(args.state).with_suffix(".pid")
         self.input_file = Path(args.command).with_name("luis-companion-input.json")
@@ -92,7 +95,47 @@ class LuisHost:
         self.state.update(updates)
         self.state["voice"] = self.voice
         self.state["listening"] = self.listening
+        self.state["vision"] = self.vision_enabled
         write_json(self.args.state, self.state)
+
+    def capture_vision(self):
+        try:
+            from PIL import ImageGrab
+
+            image = ImageGrab.grab(all_screens=True)
+            if image.width > 1600:
+                height = max(1, round(image.height * 1600 / image.width))
+                image = image.resize((1600, height))
+            temporary = self.vision_path.with_suffix(f".{os.getpid()}.tmp.png")
+            image.save(temporary, "PNG", optimize=True)
+            os.replace(temporary, self.vision_path)
+            return True
+        except Exception as error:
+            try:
+                self.state["vision_error"] = str(error)[:180]
+                write_json(self.args.state, self.state)
+            except OSError:
+                pass
+            return False
+
+    def vision_loop(self):
+        interval = max(0.75, float(os.environ.get("LUIS_VISION_INTERVAL", "1.5")))
+        while not self.stop_event.is_set() and self.vision_enabled:
+            if self.capture_vision():
+                self.save_state(vision_updated=time.time(), vision_error=None)
+            self.stop_event.wait(interval)
+
+    def start_vision(self):
+        if not self.vision_enabled or (self.vision_thread and self.vision_thread.is_alive()):
+            return self.vision_enabled
+        self.vision_thread = threading.Thread(target=self.vision_loop, daemon=True, name="luis-screen-observer")
+        self.vision_thread.start()
+        self.save_state(vision=True)
+        return True
+
+    def stop_vision(self):
+        self.vision_enabled = False
+        self.save_state(vision=False)
 
     def stop_old_host(self):
         try:
@@ -318,6 +361,13 @@ class LuisHost:
                         started = self.start_listener()
                         self.listening = bool(started)
                         self.save_state(status="listening" if started else "idle")
+                elif action == "vision_on":
+                    self.vision_enabled = True
+                    self.start_vision()
+                    self.save_state(status="idle")
+                elif action == "vision_off":
+                    self.stop_vision()
+                    self.save_state(status="idle")
                 elif action == "speak" and command.get("text"):
                     threading.Thread(
                         target=self.speak_from_terminal,
@@ -338,6 +388,7 @@ class LuisHost:
         except OSError:
             pass
         self.save_state(status="idle")
+        self.start_vision()
         if not self.start_mascot():
             return
         self.listening = self.start_listener()
@@ -354,11 +405,16 @@ class LuisHost:
                         )
                     break
         finally:
+            self.vision_enabled = False
             self.stop_listener()
             if self.mascot_process and self.mascot_process.poll() is None:
                 subprocess.run(["taskkill", "/PID", str(self.mascot_process.pid), "/T", "/F"], creationflags=CREATE_NO_WINDOW,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
             self.save_state(visible=False, status="idle")
+            try:
+                self.vision_path.unlink(missing_ok=True)
+            except OSError:
+                pass
             try:
                 self.pid_file.unlink(missing_ok=True)
             except OSError:

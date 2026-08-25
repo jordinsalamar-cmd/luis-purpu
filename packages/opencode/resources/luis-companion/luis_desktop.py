@@ -4,6 +4,7 @@ import difflib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -370,6 +371,18 @@ def screenshot():
     return str(path)
 
 
+def latest_vision():
+    source = Path(tempfile.gettempdir()) / "luis-vision-latest.png"
+    if source.exists():
+        path = Path(tempfile.gettempdir()) / f"luis-vision-request-{os.getpid()}-{int(time.time() * 1000)}.png"
+        try:
+            shutil.copyfile(source, path)
+            return str(path)
+        except OSError:
+            pass
+    return screenshot()
+
+
 def windows():
     entries = []
     callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -429,6 +442,8 @@ def run(request):
         return {"application": selected, "windows": current}
     if action == "screenshot":
         return {"screenshot": screenshot()}
+    if action == "vision":
+        return {"screenshot": latest_vision()}
     if action == "window_list":
         return {"windows": windows()}
     if action == "focus":

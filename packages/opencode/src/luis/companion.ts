@@ -98,6 +98,11 @@ export function setLuisStatus(status: string) {
   return sendCommand({ action: "status", status })
 }
 
+export function setLuisVision(enabled: boolean) {
+  ensureLuisCompanion()
+  return sendCommand({ action: enabled ? "vision_on" : "vision_off" })
+}
+
 export function startLuisCompanion() {
   if (process.platform !== "win32" || process.env.LUIS_COMPANION === "0") return false
   if (companionHostAlive()) return true
