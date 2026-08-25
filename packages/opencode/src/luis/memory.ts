@@ -7,7 +7,22 @@ import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
 
-export type LuisMemoryKind = "identity" | "session" | "conversation" | "preference" | "lesson" | "capability"
+export type LuisMemoryKind = "identity" | "session" | "conversation" | "preference" | "lesson" | "capability" | "emotion"
+
+export type LuisMood = "calm" | "joyful" | "focused" | "curious" | "concerned" | "tired"
+
+export type LuisEmotionState = {
+  mood: LuisMood
+  energy: number
+  warmth: number
+  confidence: number
+  curiosity: number
+  stress: number
+  trust: number
+  interactions: number
+  lastReason: string
+  updated: number
+}
 
 export type LuisMemoryNode = {
   id: string
@@ -70,6 +85,7 @@ function memoryTokens(value: string) {
 
 function importance(kind: LuisMemoryKind, content: string) {
   if (kind === "identity" || kind === "preference" || kind === "capability") return 1
+  if (kind === "emotion") return 0.75
   if (kind === "lesson") return 0.85
   const tokens = memoryTokens(content)
   const markers = [
@@ -150,6 +166,85 @@ function addEdge(graph: LuisMemoryGraph, edge: LuisMemoryEdge) {
 }
 
 let memoryQueue: Promise<void> = Promise.resolve()
+
+const DEFAULT_EMOTION: LuisEmotionState = {
+  mood: "calm",
+  energy: 0.72,
+  warmth: 0.7,
+  confidence: 0.68,
+  curiosity: 0.62,
+  stress: 0.12,
+  trust: 0.5,
+  interactions: 0,
+  lastReason: "inicio de Luis",
+  updated: 0,
+}
+
+function clamp(value: number) {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5))
+}
+
+function normalizeEmotion(value: unknown): LuisEmotionState {
+  const raw = value && typeof value === "object" ? (value as Partial<LuisEmotionState>) : {}
+  const moods: LuisMood[] = ["calm", "joyful", "focused", "curious", "concerned", "tired"]
+  return {
+    mood: moods.includes(raw.mood as LuisMood) ? (raw.mood as LuisMood) : DEFAULT_EMOTION.mood,
+    energy: clamp(Number(raw.energy ?? DEFAULT_EMOTION.energy)),
+    warmth: clamp(Number(raw.warmth ?? DEFAULT_EMOTION.warmth)),
+    confidence: clamp(Number(raw.confidence ?? DEFAULT_EMOTION.confidence)),
+    curiosity: clamp(Number(raw.curiosity ?? DEFAULT_EMOTION.curiosity)),
+    stress: clamp(Number(raw.stress ?? DEFAULT_EMOTION.stress)),
+    trust: clamp(Number(raw.trust ?? DEFAULT_EMOTION.trust)),
+    interactions: Math.max(0, Number(raw.interactions ?? 0)),
+    lastReason: typeof raw.lastReason === "string" ? raw.lastReason.slice(0, 180) : DEFAULT_EMOTION.lastReason,
+    updated: Number(raw.updated ?? 0),
+  }
+}
+
+export async function getLuisEmotion() {
+  const graph = await loadGraph()
+  return normalizeEmotion(graph.metadata?.luisEmotion)
+}
+
+export function recordLuisEmotion(input: {
+  sessionID: string
+  state: LuisEmotionState
+  reason: string
+}) {
+  const task = memoryQueue.then(async () => {
+    const graph = await loadGraph()
+    const now = Date.now()
+    const state = normalizeEmotion({ ...input.state, lastReason: input.reason, updated: now })
+    const identity = addNode(graph, {
+      id: "luis:identity",
+      label: "Luis",
+      type: "identity",
+      content: "Asistente de escritorio en español; llama jefe al usuario.",
+      created: now,
+      updated: now,
+    })
+    const emotion = addNode(graph, {
+      id: idFor(`emotion:${input.sessionID}:${now}`),
+      label: `ánimo ${state.mood}`,
+      type: "emotion",
+      content: `mood=${state.mood}; energía=${state.energy.toFixed(2)}; calidez=${state.warmth.toFixed(2)}; confianza=${state.confidence.toFixed(2)}; curiosidad=${state.curiosity.toFixed(2)}; estrés=${state.stress.toFixed(2)}; motivo=${state.lastReason}`,
+      created: now,
+      updated: now,
+      source: "luis.personality",
+      importance: 0.75,
+    })
+    addEdge(graph, { source: identity.id, target: emotion.id, relation: "expresa", confidence: "INFERRED" })
+    graph.metadata = { ...(graph.metadata ?? {}), luisEmotion: state, lastLuisEmotion: now }
+    compactGraph(graph)
+    await mkdir(graphDirectory(), { recursive: true })
+    const temp = `${graphPath()}.tmp`
+    await writeFile(temp, JSON.stringify(graph, null, 2), "utf8")
+    await rename(temp, graphPath())
+    await writeGraphViewer(graph)
+  })
+  memoryQueue = task.catch(() => {})
+  return task
+}
 
 function html(graph: LuisMemoryGraph) {
   const memoryNodes = graph.nodes.filter((node) => node.id.startsWith("luis:"))

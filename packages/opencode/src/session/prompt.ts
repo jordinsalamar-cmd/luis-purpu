@@ -57,6 +57,7 @@ import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
 import { recordLuisMemory, retrieveLuisMemory } from "@/luis/memory"
+import { prepareLuisPersonality, settleLuisPersonality } from "@/luis/personality"
 import { setLuisStatus, speakLuis } from "@/luis/companion"
 import { configuredFallbacks, isModelLimitError, sameModel } from "@/luis/model-fallback"
 
@@ -1063,6 +1064,9 @@ const layer = Layer.effect(
         .filter((part): part is SessionV1.TextPart => part.type === "text")
         .map((part) => part.text)
         .join("\n")
+      const personality = yield* Effect.promise(() => prepareLuisPersonality({ sessionID: input.sessionID, text: userText })).pipe(
+        Effect.orElseSucceed(() => undefined),
+      )
       yield* Effect.promise(() =>
         recordLuisMemory({
           sessionID: input.sessionID,
@@ -1084,7 +1088,7 @@ const layer = Layer.effect(
 
       if (input.noReply === true) return message
       yield* Effect.sync(() => setLuisStatus("thinking")).pipe(Effect.ignore)
-      const response = yield* loop({ sessionID: input.sessionID })
+      const response = yield* loop({ sessionID: input.sessionID, personality })
       const assistantText = response.parts
         .filter((part): part is SessionV1.TextPart => part.type === "text")
         .map((part) => part.text)
@@ -1098,6 +1102,7 @@ const layer = Layer.effect(
           source: "session.prompt.assistant",
         }),
       ).pipe(Effect.ignore)
+      yield* Effect.promise(() => settleLuisPersonality({ sessionID: input.sessionID, text: assistantText })).pipe(Effect.ignore)
       yield* Effect.sync(() => speakLuis(assistantText)).pipe(Effect.ignore)
       return response
     })
@@ -1298,7 +1303,7 @@ const layer = Layer.effect(
             )
             const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
-              sys.environment(model, memory),
+              sys.environment(model, [memory, input.personality].filter((part): part is string => Boolean(part)).join("\n")),
               instruction.system().pipe(Effect.orDie),
               sys.mcp(agent, session.permission),
               MessageV2.toModelMessagesEffect(msgs, model),
@@ -1611,6 +1616,7 @@ export type PromptInput = Schema.Schema.Type<typeof PromptInput>
 
 export class LoopInput extends Schema.Class<LoopInput>("SessionPrompt.LoopInput")({
   sessionID: SessionID,
+  personality: Schema.optional(Schema.String),
 }) {}
 
 export const ShellInput = Schema.Struct({
