@@ -82,6 +82,7 @@ class LuisHost:
         )
         self.online_voice = os.environ.get("LUIS_TTS_VOICE_ONLINE", "es-MX-JorgeNeural")
         self.voice_mode = os.environ.get("LUIS_TTS_MODE", "auto").strip().lower()
+        self.piper_model = Path(__file__).resolve().parent / "models" / "piper" / "es_MX-ald-medium.onnx"
         self.ffplay = os.environ.get("LUIS_FFPLAY") or shutil.which("ffplay")
         self.tts_python = self.find_tts_python()
         self.runtime_python = self.tts_python or sys.executable or self.args.python
@@ -349,6 +350,8 @@ class LuisHost:
                 pass
 
     def speak_offline(self, text):
+        if self.speak_piper(text):
+            return True
         script = (
             "Add-Type -AssemblyName System.Speech; "
             "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
@@ -376,6 +379,49 @@ class LuisHost:
             return process.returncode == 0
         finally:
             self.speech_process = None
+
+    def speak_piper(self, text):
+        if not self.piper_model.exists() or not self.tts_python or not self.ffplay:
+            return False
+        output = Path(tempfile.gettempdir()) / f"luis-voz-local-{os.getpid()}-{int(time.time() * 1000)}.wav"
+        try:
+            generated = subprocess.run(
+                [self.tts_python, "-m", "piper", "--model", str(self.piper_model), "--output_file", str(output)],
+                input=text,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=45,
+                check=False,
+            )
+            if generated.returncode != 0 or not output.exists():
+                return False
+            if not self.voice or self.speech_cancel.is_set():
+                return False
+            process = subprocess.Popen(
+                [self.ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(output)],
+                creationflags=CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.speech_process = process
+            while process.poll() is None:
+                if not self.voice or self.speech_cancel.is_set() or self.stop_event.is_set():
+                    self.stop_speech()
+                    return False
+                time.sleep(0.05)
+            return process.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+        finally:
+            self.speech_process = None
+            try:
+                output.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def speak_from_terminal(self, text):
         if not self.voice:

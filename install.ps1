@@ -130,6 +130,16 @@ if (-not (Test-Path -LiteralPath $venvPython)) { throw "No se pudo crear el ento
 Step "Instalando voz, micrófono y visión del companion..."
 & $venvPython -m pip install --upgrade pip
 & $venvPython -m pip install -r "packages\opencode\resources\luis-companion\requirements.txt"
+$piperDir = Join-Path $ProjectRoot "packages\opencode\resources\luis-companion\models\piper"
+$piperModel = Join-Path $piperDir "es_MX-ald-medium.onnx"
+if (-not (Test-Path -LiteralPath $piperModel)) {
+  Step "Descargando voz local masculina de Luis..."
+  New-Item -ItemType Directory -Path $piperDir -Force | Out-Null
+  & $venvPython -m piper.download_voices --download-dir $piperDir es_MX-ald-medium
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $piperModel)) {
+    throw "No se pudo descargar la voz local masculina de Luis."
+  }
+}
 if (-not $SkipBrowserInstall) { & $venvPython -m playwright install chromium }
 
 Step "Compilando el terminal de Luis-Purpu..."

@@ -39,6 +39,7 @@ packages/opencode/dist-luis/
 packages/opencode/dist/
 packages/opencode/.bun-cache/
 packages/opencode/resources/luis-companion/__pycache__/
+packages/opencode/resources/luis-companion/models/piper/
 .luis-venv/
 
 # Graphify temporary/cache files; the graph, report and Luis memory stay tracked
