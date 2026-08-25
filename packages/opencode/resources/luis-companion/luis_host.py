@@ -82,7 +82,7 @@ class LuisHost:
         )
         self.online_voice = os.environ.get("LUIS_TTS_VOICE_ONLINE", "es-MX-JorgeNeural")
         self.voice_mode = os.environ.get("LUIS_TTS_MODE", "auto").strip().lower()
-        self.piper_model = Path(__file__).resolve().parent / "models" / "piper" / "es_MX-ald-medium.onnx"
+        self.piper_model = Path(__file__).resolve().parent / "models" / "piper" / "es_ES-davefx-medium.onnx"
         self.ffplay = os.environ.get("LUIS_FFPLAY") or shutil.which("ffplay")
         self.tts_python = self.find_tts_python()
         self.runtime_python = self.tts_python or sys.executable or self.args.python

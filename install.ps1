@@ -131,11 +131,11 @@ Step "Instalando voz, micrófono y visión del companion..."
 & $venvPython -m pip install --upgrade pip
 & $venvPython -m pip install -r "packages\opencode\resources\luis-companion\requirements.txt"
 $piperDir = Join-Path $ProjectRoot "packages\opencode\resources\luis-companion\models\piper"
-$piperModel = Join-Path $piperDir "es_MX-ald-medium.onnx"
+$piperModel = Join-Path $piperDir "es_ES-davefx-medium.onnx"
 if (-not (Test-Path -LiteralPath $piperModel)) {
   Step "Descargando voz local masculina de Luis..."
   New-Item -ItemType Directory -Path $piperDir -Force | Out-Null
-  & $venvPython -m piper.download_voices --download-dir $piperDir es_MX-ald-medium
+  & $venvPython -m piper.download_voices --download-dir $piperDir es_ES-davefx-medium
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $piperModel)) {
     throw "No se pudo descargar la voz local masculina de Luis."
   }
