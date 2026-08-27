@@ -73,7 +73,7 @@ endlocal & exit /b %LUIS_EXIT%
 
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
   $pathEntries = @($userPath -split ";" | Where-Object {
-      $_ -and ($_ -ne $Root) -and ($_ -ne $launcherRoot) -and ($_ -ne $legacyLauncherRoot)
+      $_ -and ($_ -ne "System.Object[]") -and ($_ -ne $Root) -and ($_ -ne $launcherRoot) -and ($_ -ne $legacyLauncherRoot)
     })
   [Environment]::SetEnvironmentVariable("Path", (($launcherRoot, $pathEntries) -join ";"), "User")
   $env:Path = "$launcherRoot;$env:Path"
