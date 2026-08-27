@@ -83,21 +83,50 @@ endlocal & exit /b %LUIS_EXIT%
 function Install-FfmpegDirect {
   $toolsRoot = Join-Path $env:LOCALAPPDATA "Rem\ffmpeg"
   $zip = Join-Path $env:TEMP "rem-ffmpeg.zip"
-  $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-
-  Step "winget no está disponible; descargando FFmpeg directamente..."
   New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
-  Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip
-  Expand-Archive -LiteralPath $zip -DestinationPath $toolsRoot -Force
-  Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
 
   $ffplayPath = Get-ChildItem -LiteralPath $toolsRoot -Filter "ffplay.exe" -File -Recurse |
     Select-Object -First 1 -ExpandProperty FullName
-  if (-not $ffplayPath) { throw "No se pudo localizar ffplay después de descargar FFmpeg." }
+  if (-not $ffplayPath) {
+    $urls = @(
+      "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+      "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
+    )
+    $downloaded = $false
+
+    Step "winget no está disponible; preparando FFmpeg para el audio..."
+    foreach ($url in $urls) {
+      foreach ($attempt in 1..3) {
+        try {
+          Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+          Write-Host "Descarga de FFmpeg (intento $attempt/3)..." -ForegroundColor DarkGray
+          Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip -TimeoutSec 120
+          if ((Test-Path -LiteralPath $zip) -and ((Get-Item -LiteralPath $zip).Length -gt 0)) {
+            $downloaded = $true
+            break
+          }
+        } catch {
+          if ($attempt -lt 3) { Start-Sleep -Seconds 2 }
+        }
+      }
+      if ($downloaded) { break }
+    }
+    if (-not $downloaded) {
+      throw "No se pudo descargar FFmpeg. El servidor rechazó la descarga temporalmente; vuelve a ejecutar el instalador en unos minutos."
+    }
+
+    Expand-Archive -LiteralPath $zip -DestinationPath $toolsRoot -Force
+    Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+    $ffplayPath = Get-ChildItem -LiteralPath $toolsRoot -Filter "ffplay.exe" -File -Recurse |
+      Select-Object -First 1 -ExpandProperty FullName
+  }
+  if (-not $ffplayPath) { throw "No se pudo localizar ffplay después de preparar FFmpeg." }
 
   $ffmpegBin = Split-Path -Parent $ffplayPath
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-  $entries = @($userPath -split ";" | Where-Object { $_ })
+  $entries = @($userPath -split ";" | Where-Object {
+    $_ -and ($_ -ne "System.Object[]") -and ($_ -ne $ffmpegBin)
+  })
   if ($entries -notcontains $ffmpegBin) {
     [Environment]::SetEnvironmentVariable("Path", (($ffmpegBin, $entries) -join ";"), "User")
   }
