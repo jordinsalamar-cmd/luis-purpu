@@ -114,6 +114,16 @@ function shouldNarrateLuisTask(text: string) {
   )
 }
 
+function isLuisGreeting(text: string) {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[¡!¿?.,;:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return /^(hola|holi|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey)(\s+(bro|jefe|rem))?$/.test(normalized)
+}
+
 function createLuisProgressNarrator(onSpoken: (text: string) => void) {
   let buffer = ""
   let spoken = false
@@ -137,7 +147,11 @@ function removeRepeatedLuisProgress(text: string, spoken: string[]) {
   for (const progress of spoken) {
     if (remaining.startsWith(progress)) remaining = remaining.slice(progress.length).trim()
   }
-  return remaining || "Listo, jefe. La tarea terminó."
+  if (!remaining) return "Listo, jefe. La tarea terminó."
+  if (!/\b(tarea termin[oó]|trabajo termin[oó]|listo,? jefe)\b/i.test(remaining)) {
+    return remaining + " Listo, jefe. La tarea terminó."
+  }
+  return remaining
 }
 
 export interface Interface {
@@ -183,6 +197,7 @@ const layer = Layer.effect(
     const database = yield* Database.Service
     const { db } = database
     const luisProgressBySession = new Map<SessionID, string[]>()
+    const luisNarrationBySession = new Set<SessionID>()
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1125,12 +1140,17 @@ const layer = Layer.effect(
       }
 
       if (input.noReply === true) return message
-      yield* Effect.sync(() => setLuisStatus("thinking")).pipe(Effect.ignore)
+      const greeting = isLuisGreeting(userText)
+      yield* Effect.sync(() => setLuisStatus(greeting ? "idle" : "thinking")).pipe(Effect.ignore)
       luisProgressBySession.delete(input.sessionID)
-      if (shouldNarrateLuisTask(userText)) {
+      const narrateTask = shouldNarrateLuisTask(userText)
+      if (narrateTask) {
+        luisNarrationBySession.add(input.sessionID)
         yield* Effect.sync(() => speakLuis("Entendido, jefe. Ya empecé a trabajar y te iré contando el progreso.")).pipe(
           Effect.ignore,
         )
+      } else {
+        luisNarrationBySession.delete(input.sessionID)
       }
       const response = yield* loop({ sessionID: input.sessionID, personality })
       const assistantText = response.parts
@@ -1139,17 +1159,19 @@ const layer = Layer.effect(
         .join("\n")
       const spokenProgress = luisProgressBySession.get(input.sessionID) ?? []
       luisProgressBySession.delete(input.sessionID)
+      const shouldSpeakCompletion = luisNarrationBySession.delete(input.sessionID)
       yield* Effect.promise(() =>
         recordLuisMemory({
           sessionID: input.sessionID,
           kind: "lesson",
-          label: "respuesta de Luis",
+          label: "respuesta de Rem",
           content: assistantText,
           source: "session.prompt.assistant",
         }),
       ).pipe(Effect.ignore)
       yield* Effect.promise(() => settleLuisPersonality({ sessionID: input.sessionID, text: assistantText })).pipe(Effect.ignore)
-      yield* Effect.sync(() => speakLuis(removeRepeatedLuisProgress(assistantText, spokenProgress))).pipe(Effect.ignore)
+      const finalSpeech = shouldSpeakCompletion ? removeRepeatedLuisProgress(assistantText, spokenProgress) : assistantText.trim()
+      yield* Effect.sync(() => speakLuis(finalSpeech)).pipe(Effect.ignore)
       return response
     })
 
@@ -1289,7 +1311,9 @@ const layer = Layer.effect(
 
           // Each model/tool step gets its own short spoken progress update.
           // The final response is still spoken by `prompt` after the loop ends.
-          const narrateProgress = createLuisProgressNarrator((text) => spokenProgress.push(text))
+          const narrateProgress = luisNarrationBySession.has(sessionID)
+            ? createLuisProgressNarrator((text) => spokenProgress.push(text))
+            : () => {}
 
           const finalizeInterruptedAssistant = Effect.gen(function* () {
             if (msg.time.completed) return
@@ -1453,7 +1477,7 @@ const layer = Layer.effect(
                     sessionID,
                     kind: "lesson",
                     label: "cambio automático de modelo",
-                    content: `El modelo ${model.providerID}/${model.id} alcanzó un límite. Luis cambió a ${fallback.providerID}/${fallback.id}.`,
+                    content: `El modelo ${model.providerID}/${model.id} alcanzó un límite. Rem cambió a ${fallback.providerID}/${fallback.id}.`,
                     source: "session.prompt.model-fallback",
                   }),
                 ).pipe(Effect.ignore)

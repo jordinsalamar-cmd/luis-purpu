@@ -61,6 +61,15 @@ function pollLuisInput() {
     unlinkSync(inputFile())
     const text = typeof payload.text === "string" ? payload.text.trim() : ""
     if (!text) return
+    const command = text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+    if (/\b(muevete|moverte|mueve|camina|caminar|baila|bailar)\b/.test(command)) {
+      setLuisStatus("roaming")
+    } else if (/\b(quieta|quieto|para|parate|detente|deten)\b/.test(command)) {
+      setLuisStatus("idle")
+    }
     for (const listener of [...inputListeners]) listener(text)
   } catch {
     // The companion writes atomically; a missing or half-written file is normal.
@@ -137,7 +146,7 @@ export function startLuisCompanion() {
   if (companionHostAlive()) return true
   const directory = resourceDirectory()
   if (!directory) {
-    writeCompanionError("No se encontró el recurso luis-companion")
+    writeCompanionError("No se encontró el recurso del acompañante de Rem")
     return false
   }
   const state = stateFile()
@@ -164,11 +173,11 @@ export function startLuisCompanion() {
       "--cwd",
       process.cwd(),
       "--vrm",
-      process.env.LUIS_VRM_PATH || join(directory, "assets", "luis.vrm"),
+      process.env.LUIS_VRM_PATH || join(directory, "assets", "rem.vrm"),
     ],
     { detached: true, windowsHide: true, stdio: "ignore" },
   )
-  child.on("error", (error) => writeCompanionError(`No se pudo iniciar Luis: ${error.message}`))
+  child.on("error", (error) => writeCompanionError(`No se pudo iniciar Rem: ${error.message}`))
   child.unref()
   return true
 }

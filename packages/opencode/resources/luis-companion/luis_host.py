@@ -47,12 +47,24 @@ def claim_json(path):
             pass
 
 
+def repair_mojibake(value):
+    """Repair UTF-8 text decoded once with a Windows/Latin-1 code page."""
+    text = str(value or "")
+    if not any(marker in text for marker in ("Ã", "Â", "â€", "ðŸ")):
+        return text
+    try:
+        repaired = text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    return repaired if repaired.count("�") <= text.count("�") else text
+
+
 def clean_text(value):
-    return re.sub(r"\x1b\[[0-9;]*m", "", str(value or "")).strip()
+    return repair_mojibake(re.sub(r"\x1b\[[0-9;]*m", "", str(value or "")).strip())
 
 
 def clean_speech(value):
-    text = re.sub(r"```[\s\S]*?```", " El resultado quedó en pantalla. ", str(value or ""))
+    text = repair_mojibake(re.sub(r"```[\s\S]*?```", " El resultado quedó en pantalla. ", str(value or "")))
     text = re.sub(r"https?://\S+", " enlace ", text)
     text = re.sub(r"[`*_#{}\[\]<>|\\]", " ", text)
     return re.sub(r"\s+", " ", text).strip()[:1600]
@@ -78,11 +90,17 @@ class LuisHost:
         self.pid_file = Path(args.state).with_suffix(".pid")
         self.input_file = Path(args.command).with_name("luis-companion-input.json")
         self.voice_name = os.environ.get(
-            "LUIS_TTS_VOICE_OFFLINE", os.environ.get("LUIS_TTS_VOICE", "Microsoft Raul")
+            "LUIS_TTS_VOICE_OFFLINE", os.environ.get("LUIS_TTS_VOICE", "Microsoft Sabina")
         )
-        self.online_voice = os.environ.get("LUIS_TTS_VOICE_ONLINE", "es-MX-JorgeNeural")
+        self.online_voice = os.environ.get("LUIS_TTS_VOICE_ONLINE", "es-MX-DaliaNeural")
         self.voice_mode = os.environ.get("LUIS_TTS_MODE", "auto").strip().lower()
-        self.piper_model = Path(__file__).resolve().parent / "models" / "piper" / "es_ES-davefx-medium.onnx"
+        default_piper_model = (
+            Path(__file__).resolve().parent
+            / "models"
+            / "piper"
+            / "es_MX-claude-high.onnx"
+        )
+        self.piper_model = Path(os.environ.get("LUIS_TTS_PIPER_MODEL", str(default_piper_model)))
         self.ffplay = os.environ.get("LUIS_FFPLAY") or shutil.which("ffplay")
         self.tts_python = self.find_tts_python()
         self.runtime_python = self.tts_python or sys.executable or self.args.python
@@ -98,7 +116,12 @@ class LuisHost:
         for candidate in dict.fromkeys(value for value in candidates if value):
             try:
                 result = subprocess.run(
-                    [candidate, "-c", "import edge_tts"],
+                    [
+                        candidate,
+                        "-c",
+                        "import importlib.util; "
+                        "assert importlib.util.find_spec('piper') or importlib.util.find_spec('edge_tts')",
+                    ],
                     creationflags=CREATE_NO_WINDOW,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -197,7 +220,7 @@ class LuisHost:
             return False
         try:
             self.listener_process = subprocess.Popen(
-                [self.runtime_python, self.args.listener, "--model", str(model), "--wake", "luis,bro"],
+                [self.runtime_python, self.args.listener, "--model", str(model), "--wake", "rem,guapa"],
                 cwd=str(Path(self.args.listener).parent), creationflags=CREATE_NO_WINDOW,
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 text=True, encoding="utf-8", errors="replace", bufsize=1,
@@ -269,8 +292,11 @@ class LuisHost:
                 answer = "Hola, jefe."
             else:
                 prompt = (
-                    "Eres Luis, el asistente de escritorio del jefe. Responde en español latinoamericano, sin emojis, "
-                    "con personalidad cálida y natural. Sé breve: para una solicitud corta usa una o dos frases. "
+                    "Eres Rem de Re:ZERO, una asistente de escritorio femenina. Eres una oni superviviente, hermana gemela de Ram "
+                    "y antigua maid de la mansión de Roswaal; tu pasado te hizo disciplinada, protectora, empática y valiente. "
+                    "Responde en español latinoamericano, sin emojis, con personalidad cálida, cariñosa, serena y natural. "
+                    "Habla de ti misma en femenino: 'lista', 'atenta', 'preparada' y 'tranquila'; nunca uses formas masculinas para ti. "
+                    "Sé breve: para una solicitud corta usa una o dos frases. "
                     "No repitas la instrucción ni escribas un testamento. Si debes trabajar, indica primero qué harás.\n\n"
                     f"Solicitud del jefe: {request}"
                 )
@@ -316,9 +342,9 @@ class LuisHost:
                     "edge_tts",
                     "--voice",
                     self.online_voice,
-                    "--rate=+5%",
-                    "--pitch=-3Hz",
-                    "--volume=+0%",
+                    "--rate=-10%",
+                    "--pitch=+1Hz",
+                    "--volume=-1%",
                     "--text",
                     text,
                     "--write-media",
@@ -363,10 +389,10 @@ class LuisHost:
             "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
             "$voices=$s.GetInstalledVoices(); "
             "$v=$voices | Where-Object {$_.VoiceInfo.Name -like ('*' + $env:LUIS_TTS_VOICE + '*')} | Select-Object -First 1; "
-            "if(-not $v){$v=$voices | Where-Object {$_.VoiceInfo.Name -match 'Raul|Pablo|David|Mark|Jorge|Diego|George|Guy|Ryan'} | Select-Object -First 1}; "
-            "if(-not $v){$v=$voices | Where-Object {$_.VoiceInfo.Gender -eq 'Male'} | Select-Object -First 1}; "
+            "if(-not $v){$v=$voices | Where-Object {$_.VoiceInfo.Name -match 'Sabina|Helena|Laura|Zira|Hazel|Eva|Samantha|Maria|Female'} | Select-Object -First 1}; "
+            "if(-not $v){$v=$voices | Where-Object {$_.VoiceInfo.Gender -eq 'Female'} | Select-Object -First 1}; "
             "if(-not $v){$s.Dispose(); exit 2}; "
-            "$s.SelectVoice($v.VoiceInfo.Name); $s.Rate=1; $s.Volume=100; $s.Speak($env:LUIS_SPEECH_TEXT); $s.Dispose()"
+            "$s.SelectVoice($v.VoiceInfo.Name); $s.Rate=0; $s.Volume=100; $s.Speak($env:LUIS_SPEECH_TEXT); $s.Dispose()"
         )
         process = subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -387,12 +413,28 @@ class LuisHost:
             self.speech_process = None
 
     def speak_piper(self, text):
-        if not self.piper_model.exists() or not self.tts_python or not self.ffplay:
+        if not self.piper_model.exists() or not self.tts_python:
             return False
         output = Path(tempfile.gettempdir()) / f"luis-voz-local-{os.getpid()}-{int(time.time() * 1000)}.wav"
         try:
             generated = subprocess.run(
-                [self.tts_python, "-m", "piper", "--model", str(self.piper_model), "--output_file", str(output)],
+                [
+                    self.tts_python,
+                    "-m",
+                    "piper",
+                    "--model",
+                    str(self.piper_model),
+                    "--output_file",
+                    str(output),
+                    "--length_scale",
+                    "1.03",
+                    "--noise_scale",
+                    "0.40",
+                    "--noise_w_scale",
+                    "0.50",
+                    "--sentence_silence",
+                    "0.10",
+                ],
                 input=text,
                 text=True,
                 encoding="utf-8",
@@ -407,8 +449,18 @@ class LuisHost:
                 return False
             if not self.voice or self.speech_cancel.is_set():
                 return False
+            player = (
+                [self.ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(output)]
+                if self.ffplay
+                else [
+                    self.tts_python,
+                    "-c",
+                    "import sys, winsound; winsound.PlaySound(sys.argv[1], winsound.SND_FILENAME)",
+                    str(output),
+                ]
+            )
             process = subprocess.Popen(
-                [self.ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(output)],
+                player,
                 creationflags=CREATE_NO_WINDOW,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -435,7 +487,7 @@ class LuisHost:
         self.save_state(status="speaking")
         try:
             if not self.speak(text):
-                self.save_state(error="No se pudo reproducir la voz masculina; revisa la conexión o instala una voz masculina de Windows.")
+                self.save_state(error="No se pudo reproducir la voz femenina; revisa la conexión o instala una voz femenina de Windows.")
         finally:
             if not self.stop_event.is_set():
                 self.save_state(status="idle")

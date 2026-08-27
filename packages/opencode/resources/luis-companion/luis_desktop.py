@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 if os.name != "nt":
-    raise RuntimeError("La herramienta desktop de Luis solo está disponible en Windows.")
+    raise RuntimeError("La herramienta desktop de Rem solo está disponible en Windows.")
 
 
 user32 = ctypes.windll.user32
@@ -141,6 +141,7 @@ def discover_apps(query=None):
     try:
         powershell = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-StartApps | ConvertTo-Json -Compress"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False,
         )
         start_apps = json.loads(powershell.stdout or "[]")

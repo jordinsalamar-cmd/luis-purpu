@@ -52,8 +52,8 @@ export type LuisMemoryGraph = {
 
 const defaultProjectRoot = () => resolve(dirname(process.execPath), "..", "..", "..", "..", "..")
 const graphDirectory = () => join(process.env.LUIS_GRAPH_ROOT || defaultProjectRoot(), "graphify-out")
-const graphPath = () => join(graphDirectory(), "luis-memory.json")
-const htmlPath = () => join(graphDirectory(), "luis-memory.html")
+const graphPath = () => join(graphDirectory(), "rem-memory.json")
+const htmlPath = () => join(graphDirectory(), "rem-memory.html")
 const oldHtmlPaths = () => [join(graphDirectory(), "index.html"), join(graphDirectory(), "luis-brain.html")]
 
 function redact(value: string) {
@@ -111,18 +111,36 @@ function idFor(value: string) {
   return `luis:${createHash("sha1").update(value).digest("hex").slice(0, 20)}`
 }
 
+function remVisibleText(value: string) {
+  return value.replace(/Luis-Purpu/gi, "Rem").replace(/\bLuis\b/gi, "Rem").replace(/\bOpenCode\b/gi, "terminal")
+}
+
+function normalizeGraphDisplay(graph: LuisMemoryGraph): LuisMemoryGraph {
+  return {
+    ...graph,
+    version: graph.version.replace(/luis/gi, "rem"),
+    nodes: graph.nodes.map((node) => ({
+      ...node,
+      label: remVisibleText(node.label),
+      content: node.content ? remVisibleText(node.content) : node.content,
+      source: node.source ? remVisibleText(node.source) : node.source,
+    })),
+    edges: graph.edges.map((edge) => ({ ...edge, relation: remVisibleText(edge.relation) })),
+  }
+}
+
 async function loadGraph(): Promise<LuisMemoryGraph> {
   try {
     const raw = JSON.parse(await readFile(graphPath(), "utf8")) as Partial<LuisMemoryGraph>
-    return {
+    return normalizeGraphDisplay({
       version: typeof raw.version === "string" ? raw.version : "graphify+luis-v1",
       directed: raw.directed ?? true,
       nodes: Array.isArray(raw.nodes) ? (raw.nodes as LuisMemoryNode[]) : [],
       edges: Array.isArray(raw.edges) ? (raw.edges as LuisMemoryEdge[]) : [],
       metadata: raw.metadata ?? {},
-    }
+    })
   } catch {
-    return { version: "graphify+luis-v1", directed: true, nodes: [], edges: [], metadata: {} }
+    return { version: "graphify+rem-v1", directed: true, nodes: [], edges: [], metadata: {} }
   }
 }
 
@@ -176,9 +194,12 @@ const DEFAULT_EMOTION: LuisEmotionState = {
   stress: 0.12,
   trust: 0.5,
   interactions: 0,
-  lastReason: "inicio de Luis",
+  lastReason: "inicio de Rem",
   updated: 0,
 }
+
+const REM_CHARACTER_MEMORY =
+  "Rem de Re:ZERO: oni superviviente, hermana gemela de Ram y maid de la mansión de Roswaal. Su pasado difícil explica su disciplina y sus inseguridades; su crecimiento se expresa como empatía, valentía, protección y confianza construida poco a poco con el jefe. Perfil de personaje para orientar el tono, no conciencia real ni sustituto de recuerdos concretos."
 
 function clamp(value: number) {
   return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5))
@@ -217,12 +238,23 @@ export function recordLuisEmotion(input: {
     const state = normalizeEmotion({ ...input.state, lastReason: input.reason, updated: now })
     const identity = addNode(graph, {
       id: "luis:identity",
-      label: "Luis",
+      label: "Rem",
       type: "identity",
-      content: "Asistente de escritorio en español; llama jefe al usuario.",
+      content: "Asistente de escritorio femenina en español; llama jefe al usuario y conserva una personalidad cálida, serena y protectora.",
       created: now,
       updated: now,
     })
+    const character = addNode(graph, {
+      id: "luis:character:rem",
+      label: "Historia y carácter de Rem",
+      type: "identity",
+      content: REM_CHARACTER_MEMORY,
+      created: now,
+      updated: now,
+      source: "luis.character-profile",
+      importance: 1,
+    })
+    addEdge(graph, { source: identity.id, target: character.id, relation: "tiene historia", confidence: "EXTRACTED" })
     const emotion = addNode(graph, {
       id: idFor(`emotion:${input.sessionID}:${now}`),
       label: `ánimo ${state.mood}`,
@@ -264,7 +296,7 @@ function html(graph: LuisMemoryGraph) {
   const serialized = JSON.stringify(view).replace(/</g, "\\u003c")
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Luis · memory graph</title><style>
+<title>Rem · memory graph</title><style>
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;overflow:hidden;background:#0d0c18;color:#eee;font:14px system-ui,sans-serif}#graph{position:absolute;inset:0 280px 0 0;background:#0d0c18}#sidebar{position:absolute;top:0;right:0;width:280px;height:100vh;background:#19182c;border-left:1px solid #322f52;display:flex;flex-direction:column}#search-wrap{padding:14px;border-bottom:1px solid #302e4a}#search{width:100%;padding:8px 11px;border:1px solid #4d4972;border-radius:7px;background:#111020;color:#eee;outline:0}#search:focus{border-color:#8e76dc}#search-results{max-height:145px;overflow:auto}.result{padding:5px 3px;color:#c7c2e5;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.result:hover{color:#fff}.panel{padding:14px;border-bottom:1px solid #302e4a}h3{margin:0 0 12px;text-transform:uppercase;font-size:13px;letter-spacing:.04em;color:#f0eefc}.empty{color:#77758d;font-style:italic}.info-label{color:#aaa4c5;font-size:12px;margin-top:7px}.info-value{color:#eee;word-break:break-word}.legend{flex:1;overflow:auto;padding:14px}.legend label{display:flex;align-items:center;gap:8px;padding:7px 0;color:#dedaf3;cursor:pointer}.swatch{width:12px;height:12px;border-radius:50%;display:inline-block}.muted{opacity:.35}.stats{padding:14px;color:#b7b2cf;border-top:1px solid #302e4a;font-size:12px}.edge{stroke:#5e527f;stroke-opacity:.48;stroke-width:1}.node{stroke:#0d0c18;stroke-width:1.5;cursor:pointer}.node.selected{stroke:#fff;stroke-width:3}.label{fill:#d8d4ed;font-size:10px;pointer-events:none}.identity{fill:#e95dff}.session{fill:#4d9cff}.conversation{fill:#ff9a25}.preference{fill:#67c2b6}.lesson{fill:#e85b68}.capability{fill:#78b75c}</style></head>
 <body><svg id="graph" viewBox="0 0 920 800" preserveAspectRatio="xMidYMid meet"></svg><aside id="sidebar"><div id="search-wrap"><input id="search" placeholder="Search nodes..." autocomplete="off"><div id="search-results"></div></div><section class="panel"><h3>Node info</h3><div id="info"><span class="empty">Click a node to inspect it</span></div></section><section class="legend"><h3>Communities</h3><label><input id="select-all" type="checkbox" checked> Select All</label><div id="communities"></div></section><div class="stats" id="stats"></div></aside>
 <script>const data=${serialized};const svg=document.querySelector('#graph');const ns='http://www.w3.org/2000/svg';const nodes=data.nodes||[];const edges=data.edges||[];const colors={identity:'#e95dff',session:'#4d9cff',conversation:'#ff9a25',preference:'#67c2b6',lesson:'#e85b68',capability:'#78b75c'};const hidden=new Set();const pos=new Map();const nodeType=new Map();const groups=new Map();nodes.forEach(n=>{nodeType.set(n.id,n.type);if(!groups.has(n.type))groups.set(n.type,[]);groups.get(n.type).push(n)});[...groups].forEach(([type,list],groupIndex)=>{const cx=180+(groupIndex%4)*190;const cy=175+Math.floor(groupIndex/4)*240;list.forEach((n,i)=>{const angle=i*2.399;const radius=24+Math.sqrt(i+1)*18;pos.set(n.id,{x:cx+Math.cos(angle)*Math.min(145,radius),y:cy+Math.sin(angle)*Math.min(125,radius)})})});const edgeEls=[];edges.forEach(e=>{const a=pos.get(e.source),b=pos.get(e.target);if(!a||!b)return;const line=document.createElementNS(ns,'line');line.setAttribute('class','edge');line.setAttribute('x1',a.x);line.setAttribute('y1',a.y);line.setAttribute('x2',b.x);line.setAttribute('y2',b.y);svg.append(line);edgeEls.push({el:line,e})});const nodeEls=[];function showInfo(n){const info=document.querySelector('#info');info.replaceChildren();[['label',n.label],['type',n.type],['content',n.content||''],['source',n.source||'']].forEach(pair=>{if(!pair[1])return;const label=document.createElement('div');label.className='info-label';label.textContent=pair[0];const value=document.createElement('div');value.className='info-value';value.textContent=pair[1];info.append(label,value)});document.querySelectorAll('.node').forEach(x=>x.classList.remove('selected'));const found=nodeEls.find(x=>x.n.id===n.id);if(found)found.el.classList.add('selected')}nodes.forEach(n=>{const p=pos.get(n.id);const circle=document.createElementNS(ns,'circle');circle.setAttribute('class','node '+n.type);circle.setAttribute('cx',p.x);circle.setAttribute('cy',p.y);circle.setAttribute('r',n.type==='identity'?9:5);circle.addEventListener('click',()=>showInfo(n));svg.append(circle);const text=document.createElementNS(ns,'text');text.setAttribute('class','label');text.setAttribute('x',p.x+8);text.setAttribute('y',p.y+4);text.textContent=n.label.slice(0,28);svg.append(text);nodeEls.push({el:circle,text,n})});const communityBox=document.querySelector('#communities');const all=document.querySelector('#select-all');function apply(){nodeEls.forEach(x=>{const hide=hidden.has(x.n.type);x.el.style.display=hide?'none':'';x.text.style.display=hide?'none':''});edgeEls.forEach(x=>{const hide=hidden.has(nodeType.get(x.e.source))||hidden.has(nodeType.get(x.e.target));x.el.style.display=hide?'none':''})}function toggle(type,on){if(on)hidden.delete(type);else hidden.add(type);apply();all.checked=hidden.size===0}for(const type of data.communities||[]){const label=document.createElement('label');const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=true;checkbox.addEventListener('change',()=>toggle(type,checkbox.checked));const swatch=document.createElement('span');swatch.className='swatch';swatch.style.background=colors[type]||'#aaa';label.append(checkbox,swatch,document.createTextNode(type+' '+nodes.filter(n=>n.type===type).length));communityBox.append(label)}all.addEventListener('change',()=>{(data.communities||[]).forEach(type=>{if(all.checked)hidden.delete(type);else hidden.add(type)});document.querySelectorAll('#communities input').forEach(x=>x.checked=all.checked);apply()});const search=document.querySelector('#search');const results=document.querySelector('#search-results');search.addEventListener('input',()=>{results.replaceChildren();const q=search.value.toLowerCase().trim();if(!q)return;nodes.filter(n=>(n.label+' '+(n.content||'')).toLowerCase().includes(q)).slice(0,12).forEach(n=>{const item=document.createElement('div');item.className='result';item.textContent=n.label;item.onclick=()=>showInfo(n);results.append(item)})});document.querySelector('#stats').textContent=data.totalNodes+' nodes · '+data.totalEdges+' edges · '+(data.communities||[]).length+' communities';</script></body></html>`
@@ -305,11 +337,11 @@ async function exportGraphify(graph: LuisMemoryGraph) {
         type === "conversation"
           ? "Memoria conversacional"
           : type === "lesson"
-            ? "Aprendizajes de Luis"
+          ? "Aprendizajes de Rem"
             : type === "session"
               ? "Sesiones"
               : type === "identity"
-                ? "Identidad de Luis"
+                ? "Identidad de Rem"
                 : type,
       ]),
     )
@@ -348,7 +380,7 @@ async function writeLuisMemory(input: {
   const graph = await loadGraph()
   const identity = addNode(graph, {
     id: "luis:identity",
-    label: "Luis",
+    label: "Rem",
     type: "identity",
     content: "Asistente de escritorio en español; llama jefe al usuario.",
     created: now,

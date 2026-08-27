@@ -42,6 +42,6 @@ export const BrainCommand = cmd({
       return
     }
     await open(file)
-    UI.println(UI.Style.TEXT_SUCCESS + "Cerebro de Luis abierto: " + UI.Style.TEXT_NORMAL + file)
+  UI.println(UI.Style.TEXT_SUCCESS + "Cerebro de Rem abierto: " + UI.Style.TEXT_NORMAL + file)
   },
 })

@@ -56,7 +56,7 @@ function scriptPath() {
   const found = scriptCandidates().find((value) => {
     return existsSync(value)
   })
-  if (!found) throw new Error("No encontré el módulo de control de escritorio de Luis.")
+  if (!found) throw new Error("No encontré el módulo de control de escritorio de Rem.")
   return found
 }
 
@@ -81,12 +81,12 @@ export const DesktopTool = Tool.define(
   "desktop",
   Effect.succeed({
     description: [
-      "Controla el escritorio real de Windows de Luis.",
+      "Controla el escritorio real de Windows de Rem.",
       "app_list descubre aplicaciones instaladas en la PC actual desde Inicio, accesos directos, PATH y carpetas de programas; sus rutas se detectan de forma local en cada equipo.",
       "Para abrir por nombre humano usa open_app, por ejemplo target=WhatsApp; no supongas rutas de otra computadora. Si hay varias coincidencias, consulta app_list y elige la correcta.",
-      "open_app espera a que la ventana aparezca y la deja independiente de Luis; no encadenes focus inmediatamente salvo que sea necesario para una interacción posterior.",
+      "open_app espera a que la ventana aparezca y la deja independiente de Rem; no encadenes focus inmediatamente salvo que sea necesario para una interacción posterior.",
       "Usa screenshot solo si necesitas coordenadas o inspección visual; si ya conoces la ventana, usa focus, paste o key y verifica con window_list.",
-      "vision devuelve la última captura del observador de pantalla de Luis. El observador mantiene solo un archivo temporal, no guarda historial, y se actualiza automáticamente mientras Luis está activo.",
+      "vision devuelve la última captura del observador de pantalla de Rem. El observador mantiene solo un archivo temporal, no guarda historial, y se actualiza automáticamente mientras Rem está activo.",
       "Puede abrir aplicaciones o URLs, enfocar ventanas, mover y pulsar el mouse, escribir o pegar texto, usar teclas, hacer scroll y listar ventanas.",
       "Para código o texto largo usa paste: pega todo de una vez en la ventana activa y evita escribir carácter por carácter.",
       "Para reproducir un video no te limites a abrir una búsqueda: observa, selecciona el resultado correcto, pulsa reproducir y verifica el título/estado del reproductor.",

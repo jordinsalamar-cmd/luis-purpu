@@ -1,4 +1,4 @@
-"""Low-resource Spanish microphone listener for Luis."""
+"""Low-resource Spanish microphone listener for Rem."""
 
 import argparse
 import json
@@ -103,8 +103,8 @@ def normalize(text):
 
 def wake_words(value):
     words = [normalize(item.strip()) for item in re.split(r"[,|]", value or "") if item.strip()]
-    if "luis" in words:
-        words.extend(["luiz", "lui"])
+    if "ren" in words:
+        words.extend(["rem"])
     return list(dict.fromkeys(words))
 
 
@@ -160,7 +160,7 @@ def transcribe_audio(chunks, whisper_cli, whisper_model, sample_rate):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
-    parser.add_argument("--wake", default="luis")
+    parser.add_argument("--wake", default="ren,guapa")
     parser.add_argument("--continuous", action="store_true")
     parser.add_argument("--sample-rate", type=int, default=16000)
     parser.add_argument("--whisper-cli")

@@ -376,7 +376,7 @@ function ApiMethod(props: ApiMethodProps) {
                 key.
               </text>
               <text fg={theme.text}>
-                Abre la página de autenticación de LUIS-PURPU Zen para obtener una clave
+                Abre la página de autenticación de Re:ZERO Zen para obtener una clave
               </text>
             </box>
           ),
@@ -387,7 +387,7 @@ function ApiMethod(props: ApiMethodProps) {
                 with generous usage limits.
               </text>
               <text fg={theme.text}>
-                Abre la página de autenticación de LUIS-PURPU Go y activa la suscripción
+                Abre la página de autenticación de Re:ZERO Go y activa la suscripción
               </text>
             </box>
           ),

@@ -2,11 +2,13 @@ import argparse
 import base64
 import json
 import math
+import mimetypes
 import os
 import subprocess
 import time
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import tkinter as tk
 
@@ -32,25 +34,28 @@ HTML = r'''<!doctype html>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
 canvas{display:block;width:280px;height:340px;background:transparent}
 </style></head><body><canvas id="canvas" width="280" height="340"></canvas>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {VRMLoaderPlugin} from 'https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.1/lib/three-vrm.module.js';
+import {VRMLoaderPlugin} from '/vendor/three-vrm.module.js';
 const canvas=document.getElementById('canvas');canvas.width=280;canvas.height=340;
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(22,280/340,.01,100);
-camera.position.set(0,.88,4.2);
+const defaultCameraZ=4.9;
+camera.position.set(0,.88,defaultCameraZ);
 const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,preserveDrawingBuffer:true});
 renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;
 scene.add(new THREE.HemisphereLight(0xd9e2ff,0x151827,2.3));
 const key=new THREE.DirectionalLight(0xffffff,2.8);key.position.set(1.5,3,4);scene.add(key);
-let vrm=null,baseY=0,last=performance.now(),state='idle',leftArm=null,rightArm=null,leftForearm=null,rightForearm=null,leftHand=null,rightHand=null,leftLeg=null,rightLeg=null,hips=null,chest=null,head=null;
+  let vrm=null,baseY=0,last=performance.now(),state='idle',currentAction='idle',actionStarted=performance.now(),motionBlend=1;
+  let leftShoulder=null,rightShoulder=null,leftArm=null,rightArm=null,leftForearm=null,rightForearm=null,leftHand=null,rightHand=null;
+  let leftIndex1=null,leftIndex2=null,rightIndex1=null,rightIndex2=null,leftThumb1=null,rightThumb1=null,leftLeg=null,rightLeg=null,leftUpperLeg=null,rightUpperLeg=null,leftFoot=null,rightFoot=null,hips=null,spine=null,chest=null,head=null,neck=null;
 const baseRotations=new Map();
-const aliases={ready:'idle',looking:'look',greeting:'greet',listening:'listening',speaking:'speaking',thinking:'thinking','head-touch':'head-touch',crossed:'crossed',reading:'reading',coding:'coding',typing:'typing',reviewing:'reviewing',searching:'searching',graph:'graph',opening:'acting',acting:'acting',pointing:'pointing',mouse:'mouse',loading:'loading',confirm:'confirm',error:'error',success:'success',sleeping:'sleeping',music:'dancing',dance:'dancing',dancing:'dancing',bailando:'dancing',working:'coding',idle:'idle'};
+const aliases={ready:'idle',looking:'look',greeting:'greet',greet:'greet',saludar:'greet',listening:'listening',speaking:'speaking',talking:'speaking',thinking:'thinking','head-touch':'head-touch',crossed:'crossed',reading:'reading',coding:'coding',typing:'typing',reviewing:'reviewing',searching:'searching',graph:'graph',opening:'acting',acting:'acting',pointing:'pointing',mouse:'mouse',loading:'loading',confirm:'confirm',error:'error',success:'success',sleeping:'sleeping',music:'dancing',dance:'dancing',dancing:'dancing',bailando:'dancing',move:'roaming',moving:'roaming',mover:'roaming',moverse:'roaming',muevete:'roaming','muévete':'roaming',moviéndose:'roaming',bow:'bow',agacharse:'bow',side:'side','turn-side':'side',virarse:'side',nod:'nod',asentir:'nod','shake-head':'shake-head',negar:'shake-head',shy:'shy',timida:'shy',stretch:'stretch',estirarse:'stretch','wave-both':'wave-both',celebrate:'celebrate',celebrar:'celebrate',salute:'salute',clap:'clap',aplaudir:'clap',shrug:'shrug',encogerse:'shrug',sit:'sit',sentarse:'sit',kneel:'kneel',arrodillarse:'kneel',walk:'walk',caminar:'walk',run:'run',correr:'run',spin:'spin',girar:'spin',working:'coding',idle:'idle'};
 function actionFor(value){return aliases[String(value||'idle').toLowerCase()]||'idle'}
 function rememberBone(name){const bone=vrm.humanoid?.getNormalizedBoneNode(name);if(bone){baseRotations.set(bone,{x:bone.rotation.x,y:bone.rotation.y,z:bone.rotation.z})}return bone}
-function pose(bone,x=0,y=0,z=0){if(!bone)return;const base=baseRotations.get(bone)||{x:0,y:0,z:0};bone.rotation.set(base.x+x,base.y+y,base.z+z)}
+function pose(bone,x=0,y=0,z=0){if(!bone)return;const base=baseRotations.get(bone)||{x:0,y:0,z:0};bone.rotation.set(base.x+x*motionBlend,base.y+y*motionBlend,base.z+z*motionBlend)}
 function resetPose(){for(const [bone,base] of baseRotations)bone.rotation.set(base.x,base.y,base.z)}
 function normalize(){
   const box=new THREE.Box3().setFromObject(vrm.scene),size=box.getSize(new THREE.Vector3());
@@ -58,19 +63,34 @@ function normalize(){
   const placed=new THREE.Box3().setFromObject(vrm.scene),center=placed.getCenter(new THREE.Vector3());
   vrm.scene.position.set(-center.x,-placed.min.y,-center.z);baseY=vrm.scene.position.y;
   try{
+    leftShoulder=rememberBone('leftShoulder');
+    rightShoulder=rememberBone('rightShoulder');
     leftArm=rememberBone('leftUpperArm');
     rightArm=rememberBone('rightUpperArm');
     leftForearm=rememberBone('leftLowerArm');
     rightForearm=rememberBone('rightLowerArm');
     leftHand=rememberBone('leftHand');
     rightHand=rememberBone('rightHand');
+    leftIndex1=rememberBone('leftIndexProximal');
+    leftIndex2=rememberBone('leftIndexDistal');
+    rightIndex1=rememberBone('rightIndexProximal');
+    rightIndex2=rememberBone('rightIndexDistal');
+    leftThumb1=rememberBone('leftThumbMetacarpal');
+    rightThumb1=rememberBone('rightThumbMetacarpal');
+    leftUpperLeg=rememberBone('leftUpperLeg');
+    rightUpperLeg=rememberBone('rightUpperLeg');
     leftLeg=rememberBone('leftLowerLeg');
     rightLeg=rememberBone('rightLowerLeg');
+    leftFoot=rememberBone('leftFoot');
+    rightFoot=rememberBone('rightFoot');
     hips=rememberBone('hips');
-    chest=rememberBone('chest')||rememberBone('spine');
+    spine=rememberBone('spine');
+    chest=rememberBone('chest')||spine;
+    neck=rememberBone('neck');
     head=rememberBone('head');
-    if(leftArm) leftArm.rotation.z=-1.05;
-    if(rightArm) rightArm.rotation.z=1.05;
+    // Pose inicial relajada: ambos brazos caen desde los hombros y quedan abiertos.
+    if(leftArm) leftArm.rotation.z=-.95;
+    if(rightArm) rightArm.rotation.z=.95;
     baseRotations.set(leftArm,{x:leftArm.rotation.x,y:leftArm.rotation.y,z:leftArm.rotation.z});
     baseRotations.set(rightArm,{x:rightArm.rotation.x,y:rightArm.rotation.y,z:rightArm.rotation.z});
   }catch(_error){}
@@ -78,33 +98,61 @@ function normalize(){
 }
 const loader=new GLTFLoader();loader.register(parser=>new VRMLoaderPlugin(parser));
 loader.load('/luis.vrm',gltf=>{vrm=gltf.userData.vrm;scene.add(vrm.scene);normalize();window.__luisReady=true},undefined,error=>{window.__luisError=String(error)});
-window.__luisState=s=>{state=s||'idle'};
+window.__luisState=s=>{const next=actionFor(s);state=s||'idle';if(next!==currentAction){currentAction=next;actionStarted=performance.now()}};
+function applyZoom(scale){
+  const value=Math.max(.3,Math.min(4,Number(scale)||1));
+  camera.position.z=defaultCameraZ/value;
+  // Al acercarse, enfoca gradualmente la cara para que no desaparezca por arriba.
+  const focusY=Math.min(1.16,.64+Math.max(0,value-1)*.17);
+  camera.lookAt(0,focusY,0);
+}
+window.__luisZoom=applyZoom;
 function animate(now){
   const delta=Math.min((now-last)/1000,.1);last=now;
   if(vrm){
-    const t=now*.001, action=actionFor(state), pulse=Math.sin(t*2.4), slow=Math.sin(t*1.2);
+    const t=now*.001, action=currentAction, pulse=Math.sin(t*2.4), slow=Math.sin(t*1.2);
+    const transition=Math.min(1,(now-actionStarted)/420);motionBlend=transition*transition*(3-2*transition);
     resetPose();
-    vrm.scene.rotation.y=Math.sin(t*.55)*.035;
+    const idle=action==='idle', still=idle||action==='greet';
+    vrm.scene.rotation.y=still?(idle?Math.sin(t*.35)*.01:0):Math.sin(t*.55)*.035;
     vrm.scene.rotation.z=0;
-    vrm.scene.position.y=baseY+Math.sin(t*1.1)*.012;
-    if(chest) pose(chest,0,slow*.025,0);
-    if(hips) pose(hips,0,0,slow*.018);
+    vrm.scene.position.y=still?(idle?baseY+Math.sin(t*.8)*.006:baseY):baseY+Math.sin(t*1.1)*.012;
+    if(idle||action==='greet'){
+      if(chest) pose(chest,Math.sin(t*.8)*.012,Math.sin(t*.8)*.018,0);
+      if(hips) pose(hips,0,0,Math.sin(t*.55)*.008);
+      if(head) pose(head,Math.sin(t*.45)*.012,Math.sin(t*.6)*.018,Math.sin(t*.38)*.008);
+      // La pose base ya deja los brazos abajo y abiertos; solo relajamos las manos.
+      pose(leftForearm,0,.06,.06); pose(rightForearm,0,-.06,-.06);
+      pose(leftHand,0,.10,.06); pose(rightHand,0,-.10,-.06);
+    } else if(!still){
+      if(chest) pose(chest,0,slow*.025,0);
+      if(hips) pose(hips,0,0,slow*.018);
+    }
     switch(action){
       case 'look':
         pose(head,0,Math.sin(t*1.4)*.22,0);
         break;
       case 'greet':
-        pose(rightArm,-.35,0,-.35+Math.sin(t*5)*.12); pose(rightForearm,-.35,0,0); pose(rightHand,0,0,Math.sin(t*5)*.2);
+        // Saludo sin cambiar la pose: los dos brazos permanecen abajo.
         break;
       case 'listening':
-        pose(head,.05,-.12,.16); pose(rightArm,-.75,0,-.25); pose(rightForearm,-.5,0,.2);
+        pose(head,.05+Math.sin(t*.7)*.02,-.12+Math.sin(t*.5)*.01,.16);
+        pose(rightArm,-.75,0,-.25+Math.sin(t*1.8)*.03);
+        pose(rightForearm,-.5,0,.2);
+        // Movimiento sutil del cuerpo mientras escucha
+        if(chest) pose(chest,0,slow*.03,0);
         break;
       case 'speaking':
         pose(leftArm,0,0,-pulse*.16); pose(rightArm,0,0,pulse*.16); pose(leftHand,0,0,pulse*.18); pose(rightHand,0,0,-pulse*.18);
         pose(head,Math.sin(t*2.1)*.035,Math.sin(t*1.7)*.08,0);
         break;
       case 'thinking':
-        pose(head,.1,-.1,.08); pose(leftArm,-.9,0,.28); pose(leftForearm,-.8,.15,.2); pose(leftHand,-.15,0,0);
+        pose(head,.1+Math.sin(t*.6)*.02,-.1+Math.sin(t*.4)*.01,.08);
+        pose(leftArm,-.9,0,.28+Math.sin(t*1.3)*.02);
+        pose(leftForearm,-.8,.15,.2);
+        pose(leftHand,-.15,Math.sin(t*2)*.03,0);
+        // Balanceo sutil mientras piensa
+        if(chest) pose(chest,0,slow*.02,0);
         break;
       case 'head-touch':
         pose(head,-.08,0,.12); pose(rightArm,-1.05,0,.08); pose(rightForearm,-.85,0,.2); pose(rightHand,-.25,0,0);
@@ -148,19 +196,83 @@ function animate(now){
         pose(head,0,Math.sin(t*8)*.18,0); pose(leftArm,.1,0,.18); pose(rightArm,.1,0,-.18);
         break;
       case 'sleeping':
-        pose(head,.35,0,.2); pose(leftArm,.12,0,.05); pose(rightArm,.12,0,-.05); pose(chest,.04,0,0);
+        // Incluso durmiendo tiene respiración y micro-movimientos
+        pose(head,.35+Math.sin(t*.3)*.01,0,.2);
+        pose(leftArm,.12,0,.05+Math.sin(t*.8)*.02);
+        pose(rightArm,.12,0,-.05-Math.sin(t*.8)*.02);
+        pose(chest,.04+Math.sin(t*.5)*.005,0,0);
         break;
       case 'dancing':
         vrm.scene.rotation.z=Math.sin(t*3.2)*.09; pose(hips,0,0,Math.sin(t*3.2)*.08); pose(chest,0,0,-Math.sin(t*3.2)*.06);
         pose(leftArm,-.35,0,.65+Math.sin(t*5)*.22); pose(rightArm,-.35,0,-.65-Math.sin(t*5)*.22); pose(leftForearm,-.25,0,.2); pose(rightForearm,-.25,0,-.2);
         pose(leftLeg,Math.max(0,Math.sin(t*3.2))*.18,0,0); pose(rightLeg,Math.max(0,-Math.sin(t*3.2))*.18,0,0); pose(head,Math.sin(t*3.2)*.08,0,0);
         break;
+      case 'bow':
+        pose(chest,.34,0,0); pose(hips,.12,0,0); pose(head,.42,0,0); pose(leftArm,-.18,0,.16); pose(rightArm,-.18,0,-.16);
+        break;
+      case 'side':
+        vrm.scene.rotation.y=.42; pose(head,0,-.18,0); pose(chest,0,-.08,0); pose(leftArm,0,0,-.08); pose(rightArm,0,0,.08);
+        break;
+      case 'nod':
+        pose(head,.16+Math.sin(t*3.8)*.15,0,0); pose(chest,Math.sin(t*3.8)*.025,0,0);
+        break;
+      case 'shake-head':
+        pose(head,0,Math.sin(t*3.2)*.25,0); pose(chest,0,-Math.sin(t*3.2)*.025,0);
+        break;
+      case 'shy':
+        pose(head,.08,.16,.08); pose(leftArm,-.52,0,.42); pose(rightArm,-.52,0,-.42); pose(leftForearm,-.62,.2,.18); pose(rightForearm,-.62,-.2,-.18);
+        break;
+      case 'stretch':
+        pose(leftArm,-1.18,0,.12+Math.sin(t*1.8)*.04); pose(rightArm,-1.18,0,-.12-Math.sin(t*1.8)*.04); pose(leftForearm,-.2,0,.08); pose(rightForearm,-.2,0,-.08);
+        pose(head,-.06,0,0);
+        break;
+      case 'wave-both':
+        pose(leftArm,-.78,0,.25); pose(rightArm,-.78,0,-.25); pose(leftForearm,-.45,0,.62+Math.sin(t*5.6)*.28); pose(rightForearm,-.45,0,-.62-Math.sin(t*5.6)*.28);
+        pose(leftHand,0,0,Math.sin(t*5.6)*.18); pose(rightHand,0,0,-Math.sin(t*5.6)*.18);
+        break;
+      case 'celebrate':
+        pose(leftArm,-1.02,0,.46); pose(rightArm,-1.02,0,-.46); pose(leftForearm,-.28,0,.28); pose(rightForearm,-.28,0,-.28); pose(chest,0,0,Math.sin(t*3)*.05);
+        break;
+      case 'salute':
+        pose(rightArm,-.92,0,-.32); pose(rightForearm,-.88,0,-.28); pose(rightHand,-.18,0,.18); pose(head,.04,.12,0);
+        break;
+      case 'clap':
+        pose(leftArm,-.46,0,.36); pose(rightArm,-.46,0,-.36); pose(leftForearm,-.58,.30,.12); pose(rightForearm,-.58,-.30,-.12);
+        pose(leftHand,0,Math.sin(t*5)*.08,.18); pose(rightHand,0,-Math.sin(t*5)*.08,-.18);
+        break;
+      case 'shrug':
+        pose(leftShoulder,0,0,.18); pose(rightShoulder,0,0,-.18); pose(leftArm,-.22,0,.48); pose(rightArm,-.22,0,-.48); pose(head,.04,0,0);
+        break;
+      case 'sit':
+        pose(hips,-.18,0,0); pose(chest,.08,0,0); pose(leftUpperLeg,-.82,0,0); pose(rightUpperLeg,-.82,0,0); pose(leftLeg,1.12,0,0); pose(rightLeg,1.12,0,0);
+        pose(leftFoot,-.28,0,0); pose(rightFoot,-.28,0,0); pose(leftArm,-.18,0,.18); pose(rightArm,-.18,0,-.18);
+        break;
+      case 'kneel':
+        pose(hips,-.12,0,0); pose(chest,.18,0,0); pose(leftUpperLeg,-.55,0,0); pose(rightUpperLeg,-.55,0,0); pose(leftLeg,1.42,0,0); pose(rightLeg,1.42,0,0);
+        pose(leftFoot,-.72,0,0); pose(rightFoot,-.72,0,0); pose(head,.12,0,0);
+        break;
+      case 'walk':
+        pose(hips,0,0,Math.sin(t*3.4)*.06); pose(chest,0,0,-Math.sin(t*3.4)*.04); pose(leftUpperLeg,Math.sin(t*3.4)*.28,0,0); pose(rightUpperLeg,-Math.sin(t*3.4)*.28,0,0);
+        pose(leftLeg,Math.max(0,-Math.sin(t*3.4))*.22,0,0); pose(rightLeg,Math.max(0,Math.sin(t*3.4))*.22,0,0); pose(leftArm,Math.sin(t*3.4)*.18,0,0); pose(rightArm,-Math.sin(t*3.4)*.18,0,0);
+        break;
+      case 'run':
+        pose(hips,0,0,Math.sin(t*6)*.1); pose(chest,.04,0,-Math.sin(t*6)*.06); pose(leftUpperLeg,Math.sin(t*6)*.62,0,0); pose(rightUpperLeg,-Math.sin(t*6)*.62,0,0);
+        pose(leftLeg,Math.max(0,-Math.sin(t*6))*.5,0,0); pose(rightLeg,Math.max(0,Math.sin(t*6))*.5,0,0); pose(leftArm,-Math.sin(t*6)*.42,0,0); pose(rightArm,Math.sin(t*6)*.42,0,0);
+        break;
+      case 'spin':
+        vrm.scene.rotation.y=Math.sin(t*.8)*1.15; pose(chest,0,0,Math.sin(t*1.6)*.08); pose(leftArm,-.35,0,.3); pose(rightArm,-.35,0,-.3); pose(head,0,-Math.sin(t*.8)*.15,0);
+        break;
       default:
-        pose(leftArm,0,0,-slow*.08); pose(rightArm,0,0,slow*.08); pose(head,Math.sin(t*.8)*.025,Math.sin(t*.65)*.05,0);
+        break;
     }
     if(vrm.expressionManager){
-      const mouth=action==='speaking'?(Math.sin(now*.018)*.5+.5):0;
+      const mouth=action==='speaking'?(Math.sin(now*.018)*.5+.5):Math.sin(now*.003)*.1;
       vrm.expressionManager.setValue('aa',mouth);
+      // Micro-expresiones constantes para dar vida
+      // Parpadeo corto y natural durante el reposo, aproximadamente cada 5 segundos.
+      const blinkPhase=(now/1000)%5.2;
+      const blink=blinkPhase>4.95?Math.sin(Math.min(1,(blinkPhase-4.95)/.25)*Math.PI):0;
+      vrm.expressionManager.setValue('blink',blink);
     }
     vrm.update(delta)
   }
@@ -204,6 +316,7 @@ class LuisOverlay:
         self.drag_origin = None
         self.image = None
         self.current_state = {}
+        self.zoom = 1.0
         self.browser = None
         self.page = None
         self.playwright = None
@@ -211,6 +324,7 @@ class LuisOverlay:
         self.image_label.place(x=10, y=6, width=CANVAS_WIDTH, height=CANVAS_HEIGHT)
         self.image_label.bind("<ButtonPress-1>", self.drag_start)
         self.image_label.bind("<B1-Motion>", self.drag_move)
+        self.image_label.bind("<MouseWheel>", self.change_zoom)
         self.controls_root = tk.Toplevel(self.root)
         self.controls_root.overrideredirect(True)
         self.controls_root.configure(bg=TRANSPARENT)
@@ -235,7 +349,8 @@ class LuisOverlay:
     def position(self):
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        return f"{WIDTH}x360+{max(0, screen_width-WIDTH-22)}+{max(24, screen_height-360-106)}"
+        # Deja un espacio visible entre Rem y los controles independientes.
+        return f"{WIDTH}x360+{max(0, screen_width-WIDTH-22)}+{max(24, screen_height-360-150)}"
 
     def controls_position(self):
         screen_width = self.root.winfo_screenwidth()
@@ -273,7 +388,7 @@ class LuisOverlay:
 
         window = tk.Toplevel(self.controls_root)
         self.message_window = window
-        window.title("Escribir a Luis")
+        window.title("Escribir a Rem")
         window.configure(bg="#111827")
         window.resizable(False, False)
         window.attributes("-topmost", True)
@@ -301,6 +416,16 @@ class LuisOverlay:
                   activebackground="#7184ff", activeforeground="white", relief="flat",
                   font=("Segoe UI", 9, "bold")).pack(pady=(0, 10))
 
+    def change_zoom(self, event):
+        if not self.page:
+            return "break"
+        self.zoom = max(0.3, min(4.0, self.zoom * (1.12 if event.delta > 0 else 0.89)))
+        try:
+            self.page.evaluate("scale => window.__luisZoom(scale)", self.zoom)
+        except Exception:
+            pass
+        return "break"
+
     def drag_start(self, event):
         self.drag_origin = (event.x_root, event.y_root, self.root.winfo_x(), self.root.winfo_y())
 
@@ -308,7 +433,9 @@ class LuisOverlay:
         if not self.drag_origin:
             return
         start_x, start_y, window_x, window_y = self.drag_origin
-        self.root.geometry(f"+{window_x + event.x_root-start_x}+{window_y + event.y_root-start_y}")
+        delta_x = event.x_root - start_x
+        delta_y = event.y_root - start_y
+        self.root.geometry(f"+{window_x + delta_x}+{window_y + delta_y}")
 
     def controls_drag_start(self, event):
         self.controls_drag_origin = (event.x_root, event.y_root, self.controls_root.winfo_x(), self.controls_root.winfo_y())
@@ -317,7 +444,9 @@ class LuisOverlay:
         if not self.controls_drag_origin:
             return
         start_x, start_y, window_x, window_y = self.controls_drag_origin
-        self.controls_root.geometry(f"+{window_x + event.x_root-start_x}+{window_y + event.y_root-start_y}")
+        delta_x = event.x_root - start_x
+        delta_y = event.y_root - start_y
+        self.controls_root.geometry(f"+{window_x + delta_x}+{window_y + delta_y}")
 
     def update_roaming(self, active):
         if not active:
@@ -334,7 +463,7 @@ class LuisOverlay:
         x = int(max_x * (0.5 + 0.43 * math.sin(elapsed * 0.42)))
         y = int(24 + max(0, max_y - 24) * (0.5 + 0.40 * math.cos(elapsed * 0.57)))
         self.root.geometry(f"{WIDTH}x360+{x}+{y}")
-        self.controls_root.geometry(f"{WIDTH}x82+{x}+{y + 360}")
+        # El personaje puede moverse sin arrastrar los controles con él.
 
     def update_state(self):
         current = read_json(self.args.state)
@@ -348,13 +477,16 @@ class LuisOverlay:
                       "crossed": "esperando", "loading": "cargando", "confirm": "confirmando",
                       "success": "terminado", "error": "hubo un error", "sleeping": "durmiendo",
                       "music": "escuchando música", "dance": "bailando", "dancing": "bailando",
-                      "roaming": "moviéndose",
+                       "greet": "saludando", "bow": "saludando con una reverencia", "side": "de perfil", "nod": "asintiendo",
+                      "shake-head": "negando", "shy": "tímida", "stretch": "estirándose",
+                      "wave-both": "saludando con las dos manos", "celebrate": "celebrando",
+                      "look": "mirando", "roaming": "moviéndose", "move": "moviéndose", "moving": "moviéndose",
                       "muted": "silenciada"}
             self.status.configure(text=labels.get(current.get("status"), current.get("status", "lista")))
             self.draw_controls()
             if self.page:
                 self.page.evaluate("status => window.__luisState(status)", current.get("status", "idle"))
-        self.update_roaming(current.get("status") in {"dancing", "dance", "music", "roaming"})
+        self.update_roaming(current.get("status") in {"dancing", "dance", "music", "roaming", "move", "moving", "mover", "moverse", "muevete", "muévete", "moviéndose"})
         if current.get("visible") is False or current.get("status") == "exit":
             self.close()
             return
@@ -422,16 +554,30 @@ class LocalPageServer:
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
         vrm_file = Path(vrm_path).resolve()
+        vendor_root = (Path(__file__).resolve().parent / "assets" / "vendor").resolve()
+
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_args):
                 return
 
             def do_GET(self):
-                if self.path == "/luis.vrm":
+                request_path = urlsplit(self.path).path
+                if request_path == "/luis.vrm":
                     payload = vrm_file.read_bytes()
-                    self.send_response(200); self.send_header("Content-Type", "application/octet-stream")
+                    content_type = "application/octet-stream"
+                elif request_path.startswith("/vendor/"):
+                    relative = Path(unquote(request_path.removeprefix("/vendor/")))
+                    candidate = (vendor_root / relative).resolve()
+                    if not candidate.is_file() or not candidate.is_relative_to(vendor_root):
+                        self.send_error(404)
+                        return
+                    payload = candidate.read_bytes()
+                    content_type = "text/javascript" if candidate.suffix == ".js" else (mimetypes.guess_type(candidate.name)[0] or "application/octet-stream")
                 else:
-                    payload = HTML.encode(); self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+                    payload = HTML.encode()
+                    content_type = "text/html; charset=utf-8"
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(payload))); self.end_headers(); self.wfile.write(payload)
 
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

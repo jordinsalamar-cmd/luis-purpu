@@ -53,7 +53,7 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
                 ✕
               </text>
             </box>
-            <text fg={theme().textMuted}>LUIS-PURPU incluye modelos gratuitos para empezar de inmediato.</text>
+            <text fg={theme().textMuted}>Re:ZERO incluye modelos gratuitos para empezar de inmediato.</text>
             <text fg={theme().textMuted}>
               Connect from 75+ providers to use other models, including Claude, GPT, Gemini etc
             </text>
@@ -69,7 +69,7 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
         <span style={{ fg: theme().text }}>{path().name}</span>
       </text>
       <text fg={theme().textMuted}>
-        <span style={{ fg: theme().success }}>•</span> <b>LUIS-PURPU</b>{" "}
+        <span style={{ fg: theme().success }}>•</span> <b>RE:ZERO</b>{" "}
         <span>{props.api.app.version}</span>
       </text>
     </box>

@@ -24,8 +24,8 @@ export function cliErrorMessage(input: unknown): string | undefined {
     return [
       `Model not found: ${field(model, "providerID")}/${field(model, "modelID")}`,
       ...(suggestions.length ? ["Did you mean: " + suggestions.join(", ")] : []),
-      "Try: `luis models` to list available models",
-      "Or check your config (opencode.json) provider/model names",
+      "Try: `rem models` to list available models",
+      "Or check your project configuration and provider/model names",
     ].join("\n")
   }
 
@@ -70,7 +70,7 @@ export function cliErrorMessage(input: unknown): string | undefined {
   if (tagged(input, "UICancelledError") || named(input, "UICancelledError")) return ""
   if (isRecord(input) && named(input, "MCPFailed")) {
     const name = isRecord(input.data) ? field(input.data, "name") : undefined
-    return `MCP server "${name}" failed. Note, LUIS-PURPU does not support MCP authentication yet.`
+    return `MCP server "${name}" failed. Note, Re:ZERO does not support MCP authentication yet.`
   }
   return undefined
 }

@@ -72,12 +72,12 @@ export function resolveThreadDirectory(project?: string, envPWD = process.env.PW
 
 export const TuiThreadCommand = cmd({
   command: "$0 [project]",
-  describe: "start LUIS-PURPU terminal",
+  describe: "start Re:ZERO terminal",
   builder: (yargs) =>
     withNetworkOptions(yargs)
       .positional("project", {
         type: "string",
-        describe: "path to start LUIS-PURPU in",
+        describe: "path to start Re:ZERO in",
       })
       .option("model", {
         type: "string",
@@ -144,7 +144,7 @@ export const TuiThreadCommand = cmd({
       })
       .option("luis", {
         type: "boolean",
-        describe: "open the Luis companion window",
+        describe: "open the Rem companion window",
         default: true,
       }),
   handler: async (args) => {

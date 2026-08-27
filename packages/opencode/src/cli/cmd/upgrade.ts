@@ -6,7 +6,7 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 
 export const UpgradeCommand = {
   command: "upgrade [target]",
-  describe: "upgrade LUIS-PURPU to the latest or a specific version",
+  describe: "upgrade Re:ZERO to the latest or a specific version",
   builder: (yargs: Argv) => {
     return yargs
       .positional("target", {

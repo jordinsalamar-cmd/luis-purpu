@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/package.json",
   "version": "1.18.21",
   "name": "opencode",
-  "description": "Luis-Purpu desktop agent terminal",
+  "description": "Re:ZERO desktop agent terminal",
   "author": "Jordin Ariel Salamar Zambrano",
   "type": "module",
   "license": "MIT",
