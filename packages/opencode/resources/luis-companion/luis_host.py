@@ -64,9 +64,18 @@ def clean_text(value):
 
 
 def clean_speech(value):
-    text = repair_mojibake(re.sub(r"```[\s\S]*?```", " El resultado quedó en pantalla. ", str(value or "")))
+    text = repair_mojibake(str(value or ""))
+    text = re.sub(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", " ", text)
+    text = re.sub(r"```[\s\S]*?```", " El resultado quedó en pantalla. ", text)
+    text = re.sub(r"!?\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
     text = re.sub(r"https?://\S+", " enlace ", text)
-    text = re.sub(r"[`*_#{}\[\]<>|\\]", " ", text)
+    text = re.sub(r"\basync\s*/\s*await\b", "asíncrono y espera", text, flags=re.IGNORECASE)
+    text = re.sub(r"\basync\b", "asíncrono", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bawait\b", "espera", text, flags=re.IGNORECASE)
+    text = re.sub(r"[`*_#{}\[\]<>|\\/$=~^%]", " ", text)
+    text = re.sub(r"(?<!\w)[&@+]+(?!\w)", " ", text)
+    text = re.sub(r"(?:^|\s)[>$]+(?=\s|$)", " ", text)
     return re.sub(r"\s+", " ", text).strip()[:1600]
 
 
