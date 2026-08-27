@@ -59,7 +59,13 @@ import { LLMEvent } from "@opencode-ai/llm"
 import { recordLuisMemory, retrieveLuisMemory } from "@/luis/memory"
 import { prepareLuisPersonality, settleLuisPersonality } from "@/luis/personality"
 import { setLuisStatus, speakLuis } from "@/luis/companion"
-import { configuredFallbacks, isModelLimitError, sameModel } from "@/luis/model-fallback"
+import {
+  availableFallbacks,
+  configuredFallbacks,
+  isModelLimitError,
+  isProviderUnavailableError,
+  sameModel,
+} from "@/luis/model-fallback"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1441,12 +1447,18 @@ const layer = Layer.effect(
               }
             }
 
-            if (result === "stop" && handle.message.error && isModelLimitError(handle.message.error)) {
+            if (
+              result === "stop" &&
+              handle.message.error &&
+              (isModelLimitError(handle.message.error) || isProviderUnavailableError(handle.message.error))
+            ) {
               attemptedFallbacks.add(`${model.providerID}/${model.id}`)
               const smallModel = yield* provider.getSmallModel(model.providerID)
               const defaultModel = yield* provider.defaultModel().pipe(Effect.catch(() => Effect.succeed(undefined)))
+              const availableModels = yield* provider.list()
               const candidates = [
                 ...configuredFallbacks(),
+                ...availableFallbacks(availableModels, model),
                 ...(smallModel ? [{ providerID: smallModel.providerID, modelID: smallModel.id }] : []),
                 ...(defaultModel ? [defaultModel] : []),
               ]
@@ -1477,7 +1489,7 @@ const layer = Layer.effect(
                     sessionID,
                     kind: "lesson",
                     label: "cambio automático de modelo",
-                    content: `El modelo ${model.providerID}/${model.id} alcanzó un límite. Rem cambió a ${fallback.providerID}/${fallback.id}.`,
+                    content: `El modelo ${model.providerID}/${model.id} no estuvo disponible. Rem cambió a ${fallback.providerID}/${fallback.id}.`,
                     source: "session.prompt.model-fallback",
                   }),
                 ).pipe(Effect.ignore)
