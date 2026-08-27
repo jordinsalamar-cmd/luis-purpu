@@ -101,15 +101,27 @@ class LuisHost:
             / "es_MX-claude-high.onnx"
         )
         self.piper_model = Path(os.environ.get("LUIS_TTS_PIPER_MODEL", str(default_piper_model)))
-        self.ffplay = os.environ.get("LUIS_FFPLAY") or shutil.which("ffplay")
+        self.ffplay = self.find_ffplay()
         self.tts_python = self.find_tts_python()
         self.runtime_python = self.tts_python or sys.executable or self.args.python
-        if not self.ffplay:
-            winget_dir = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
-            try:
-                self.ffplay = next((str(path) for path in winget_dir.rglob("ffplay.exe")), None)
-            except OSError:
-                self.ffplay = None
+
+    def find_ffplay(self):
+        configured = os.environ.get("LUIS_FFPLAY")
+        candidates = [
+            configured,
+            shutil.which("ffplay"),
+            Path.home() / "AppData" / "Local" / "Rem" / "ffmpeg" / "ffplay.exe",
+            Path.home() / "AppData" / "Local" / "Rem" / "ffmpeg" / "ffmpeg-9.0.1-essentials_build" / "bin" / "ffplay.exe",
+        ]
+        winget_dir = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
+        try:
+            candidates.extend(winget_dir.rglob("ffplay.exe"))
+        except OSError:
+            pass
+        for candidate in candidates:
+            if candidate and Path(candidate).is_file():
+                return str(candidate)
+        return None
 
     def find_tts_python(self):
         candidates = [sys.executable, self.args.python, shutil.which(str(self.args.python))]
@@ -325,10 +337,13 @@ class LuisHost:
             if self.voice_mode == "offline":
                 return self.speak_offline(text)
             if self.voice_mode == "online":
-                return self.speak_online(text)
-            if self.speak_online(text):
+                return self.speak_online(text) or self.speak_offline(text)
+            # Local Piper is immediate and works without internet. In auto mode
+            # it is the reliable default; online TTS remains available through
+            # LUIS_TTS_MODE=online and falls back to Piper when explicitly used.
+            if self.speak_offline(text):
                 return True
-            return self.speak_offline(text)
+            return self.speak_online(text)
 
     def speak_online(self, text):
         if not self.ffplay or not self.tts_python or not self.voice or self.speech_cancel.is_set():
@@ -535,7 +550,6 @@ class LuisHost:
         self.stop_old_host()
         try:
             self.input_file.unlink(missing_ok=True)
-            Path(self.args.command).unlink(missing_ok=True)
         except OSError:
             pass
         self.save_state(status="idle")

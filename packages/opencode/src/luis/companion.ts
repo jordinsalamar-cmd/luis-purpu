@@ -152,6 +152,14 @@ export function startLuisCompanion() {
   const state = stateFile()
   const command = commandFile()
   const python = companionPython()
+  // Remove only a stale command before booting. The host must not clear this
+  // file on startup because speakLuis() can enqueue the first speech command
+  // while the detached host is still becoming ready.
+  try {
+    unlinkSync(command)
+  } catch {
+    // No pending command is the normal case.
+  }
   const child = spawn(
     python,
     [
