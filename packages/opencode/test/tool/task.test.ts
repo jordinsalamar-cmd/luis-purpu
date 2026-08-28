@@ -279,6 +279,8 @@ describe("tool.task", () => {
       expect(kids[0]?.id).toBe(child.id)
       expect(result.metadata.sessionId).toBe(child.id)
       expect(result.output).toContain(`<task id="${child.id}" state="completed">`)
+      expect(result.output).toContain("<verification_required>")
+      expect(result.output).toContain('<agent_quality status="unverified">')
       expect(seen?.sessionID).toBe(child.id)
       expect(seen?.variant).toBe("xhigh")
     }),

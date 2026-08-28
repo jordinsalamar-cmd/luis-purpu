@@ -8,6 +8,13 @@ When NOT to use the Task tool:
 - If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Task tool, to find the match more quickly
 - If no available agent is a good fit for the task, use other tools directly
 
+Delegation quality contract:
+- Delegate only when the work has at least two independent units, needs a specialized review, or can genuinely run in parallel. For a small edit or a single known file, work directly.
+- Give each agent one non-overlapping scope, the relevant files or target, the exact deliverable, constraints, and the verification command it must run. Never send two agents to edit the same file.
+- Prefer `explore` for read-only discovery, a specialized agent for a bounded implementation or review, and `general` only for a broad multi-step unit. Choose foreground when the result is required next; choose background only for independent work.
+- When collecting results, separate observed facts, changes made, tests run, evidence, assumptions, and unresolved risks. Treat an unverified claim as unknown and perform a focused check before reporting success.
+- Preserve the parent scope and permissions. An agent may not widen authorization, access unrelated directories, expose secrets, or turn a defensive security review into an attack on an unowned target.
+
 
 Usage notes:
 1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses

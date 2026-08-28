@@ -71,6 +71,12 @@ function renderOutput(input: {
   return [
     `<task id="${input.sessionID}" state="${input.state}">`,
     ...(input.summary ? [`<summary>${input.summary}</summary>`] : []),
+    ...(input.state === "completed"
+      ? [
+          "<verification_required>Subagent report is unverified. Check its files, tests, and evidence before presenting any claim as an observed fact.</verification_required>",
+          '<agent_quality status="unverified">Automated quality signal is pending parent-agent verification.</agent_quality>',
+        ]
+      : []),
     `<${tag}>`,
     input.text,
     `</${tag}>`,

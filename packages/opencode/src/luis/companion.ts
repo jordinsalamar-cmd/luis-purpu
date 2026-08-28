@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import { redactLuisSensitiveText } from "./redaction"
 
 function resourceDirectory() {
   const candidates = [
@@ -16,6 +17,7 @@ function resourceDirectory() {
 
 const stateFile = () => join(tmpdir(), "luis-companion-state.json")
 const commandFile = () => join(tmpdir(), "luis-companion-command.json")
+const speechFile = () => join(tmpdir(), "luis-companion-speech.json")
 const inputFile = () => join(tmpdir(), "luis-companion-input.json")
 const inputListeners = new Set<(text: string) => void>()
 let inputPoller: ReturnType<typeof setInterval> | undefined
@@ -115,6 +117,11 @@ function ensureLuisCompanion() {
 export function stopLuisCompanion() {
   const sent = sendCommand({ action: "exit" })
   try {
+    unlinkSync(speechFile())
+  } catch {
+    // There may be no pending speech.
+  }
+  try {
     const current = JSON.parse(readFileSync(stateFile(), "utf8")) as Record<string, unknown>
     const temporary = `${stateFile()}.tmp`
     writeFileSync(temporary, JSON.stringify({ ...current, visible: false, listening: false, status: "idle" }), "utf8")
@@ -126,10 +133,26 @@ export function stopLuisCompanion() {
 }
 
 export function speakLuis(text: string) {
-  const value = text.trim()
+  const value = redactLuisSensitiveText(text.trim(), 1600)
   if (!value) return false
   ensureLuisCompanion()
-  return sendCommand({ action: "speak", text: value })
+  const speeches = speechFile()
+  try {
+    let pending: string[] = []
+    try {
+      const current = JSON.parse(readFileSync(speeches, "utf8"))
+      if (Array.isArray(current)) pending = current.filter((item): item is string => typeof item === "string")
+    } catch {
+      // No pending speech is the normal case.
+    }
+    pending.push(value)
+    const temporary = `${speeches}.tmp`
+    writeFileSync(temporary, JSON.stringify(pending), "utf8")
+    renameSync(temporary, speeches)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function setLuisStatus(status: string) {

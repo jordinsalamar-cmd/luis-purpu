@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto"
 import { execFile } from "node:child_process"
-import { copyFile, mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
+import { redactLuisSensitiveText } from "./redaction"
 
 const execFileAsync = promisify(execFile)
-
 export type LuisMemoryKind = "identity" | "session" | "conversation" | "preference" | "lesson" | "capability" | "emotion"
-
 export type LuisMood = "calm" | "joyful" | "focused" | "curious" | "concerned" | "tired"
-
 export type LuisEmotionState = {
   mood: LuisMood
   energy: number
@@ -34,7 +32,6 @@ export type LuisMemoryNode = {
   source?: string
   importance?: number
 }
-
 export type LuisMemoryEdge = {
   source: string
   target: string
@@ -49,29 +46,32 @@ export type LuisMemoryGraph = {
   edges: LuisMemoryEdge[]
   metadata?: Record<string, unknown>
 }
-
 const defaultProjectRoot = () => resolve(dirname(process.execPath), "..", "..", "..", "..", "..")
 const graphDirectory = () => join(process.env.LUIS_GRAPH_ROOT || defaultProjectRoot(), "graphify-out")
 const graphPath = () => join(graphDirectory(), "rem-memory.json")
 const htmlPath = () => join(graphDirectory(), "rem-memory.html")
 const oldHtmlPaths = () => [join(graphDirectory(), "index.html"), join(graphDirectory(), "luis-brain.html")]
 
-function redact(value: string) {
-  return value
-    .replace(
-      /(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|private[_-]?key|authorization)\s*[:=]\s*[^\s,;]+/gi,
-      "$1=[redacted]",
-    )
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redacted]")
-    .slice(0, 4000)
+type GraphCache = {
+  path: string
+  modified: number
+  graph: LuisMemoryGraph
+  tokens: Map<string, Set<string>>
+  index: Map<string, Set<string>>
 }
 
+let graphCache: GraphCache | undefined
+export function luisGraphDirectory() {
+  return graphDirectory()
+}
+function redact(value: string) {
+  return redactLuisSensitiveText(value)
+}
 const MEMORY_STOP_WORDS = new Set(
   "a al algo aqui así con como de del el ella en es esta este fue ha hay la las le lo los me mi muy no para por que se si su sus te todo un una y yo".split(
     " ",
   ),
 )
-
 function memoryTokens(value: string) {
   return new Set(
     value
@@ -82,7 +82,12 @@ function memoryTokens(value: string) {
       .filter((token) => token.length > 2 && !MEMORY_STOP_WORDS.has(token)),
   )
 }
-
+function shouldPersistMemory(content: string) {
+  const value = content.trim()
+  return value.length >= 18 || /\b(recuerda|siempre|prefiero|mi nombre|no uses|aprende|configura|no quiero|no me gusta|te dije|acu[eé]rdate|recuerda que)\b/i.test(value)
+}
+const isLuisSmallTalk = (value: string) => /^(?:hola|hey|buenas?|gracias|ok(?:ay)?|s[ií]|no|dale|perfecto|genial|jaja+|jeje+)[!?.\s]*$/i.test(value.trim())
+const isLuisPreference = (value: string) => /\b(recuerda|siempre|prefiero|mi nombre|no uses|aprende|configura|a partir de ahora|no quiero|no me gusta|te dije|acu[eé]rdate|recuerda que)\b|\bquiero que (rem|ella|t[uú]|te)\b/i.test(value)
 function importance(kind: LuisMemoryKind, content: string) {
   if (kind === "identity" || kind === "preference" || kind === "capability") return 1
   if (kind === "emotion") return 0.75
@@ -106,15 +111,12 @@ function importance(kind: LuisMemoryKind, content: string) {
       Math.min(0.2, tokens.size / 100),
   )
 }
-
 function idFor(value: string) {
   return `luis:${createHash("sha1").update(value).digest("hex").slice(0, 20)}`
 }
-
 function remVisibleText(value: string) {
   return value.replace(/Luis-Purpu/gi, "Rem").replace(/\bLuis\b/gi, "Rem").replace(/\bOpenCode\b/gi, "terminal")
 }
-
 function normalizeGraphDisplay(graph: LuisMemoryGraph): LuisMemoryGraph {
   return {
     ...graph,
@@ -128,22 +130,33 @@ function normalizeGraphDisplay(graph: LuisMemoryGraph): LuisMemoryGraph {
     edges: graph.edges.map((edge) => ({ ...edge, relation: remVisibleText(edge.relation) })),
   }
 }
-
 async function loadGraph(): Promise<LuisMemoryGraph> {
+  const path = graphPath()
   try {
-    const raw = JSON.parse(await readFile(graphPath(), "utf8")) as Partial<LuisMemoryGraph>
-    return normalizeGraphDisplay({
+    const modified = (await stat(path)).mtimeMs
+    if (graphCache?.path === path && graphCache.modified === modified) return graphCache.graph
+    const raw = JSON.parse(await readFile(path, "utf8")) as Partial<LuisMemoryGraph>
+    const graph = normalizeGraphDisplay({
       version: typeof raw.version === "string" ? raw.version : "graphify+luis-v1",
       directed: raw.directed ?? true,
       nodes: Array.isArray(raw.nodes) ? (raw.nodes as LuisMemoryNode[]) : [],
       edges: Array.isArray(raw.edges) ? (raw.edges as LuisMemoryEdge[]) : [],
       metadata: raw.metadata ?? {},
     })
+    const tokens = new Map(graph.nodes.map((node) => [node.id, memoryTokens(`${node.label} ${node.content ?? ""}`)]))
+    const index = new Map<string, Set<string>>()
+    for (const [id, values] of tokens) for (const token of values) (index.get(token) ?? index.set(token, new Set()).get(token)!).add(id)
+    graphCache = { path, modified, graph, tokens, index }
+    return graph
   } catch {
-    return { version: "graphify+rem-v1", directed: true, nodes: [], edges: [], metadata: {} }
+    const graph = { version: "graphify+rem-v1", directed: true, nodes: [], edges: [], metadata: {} }
+    if (graphCache?.path !== path) graphCache = { path, modified: -1, graph, tokens: new Map(), index: new Map() }
+    return graph
   }
 }
-
+function invalidateGraphCache() {
+  graphCache = undefined
+}
 function addNode(graph: LuisMemoryGraph, node: LuisMemoryNode) {
   const existing = graph.nodes.find((item) => item.id === node.id)
   if (existing) {
@@ -155,11 +168,9 @@ function addNode(graph: LuisMemoryGraph, node: LuisMemoryNode) {
   graph.nodes.push(node)
   return node
 }
-
 function compactGraph(graph: LuisMemoryGraph) {
   const maxNodes = Number.parseInt(process.env.LUIS_MEMORY_MAX_NODES ?? "12000", 10)
   if (!Number.isFinite(maxNodes) || maxNodes < 1000 || graph.nodes.length <= maxNodes) return
-
   const keep = new Set(
     graph.nodes.filter((node) => node.type === "identity" || (node.importance ?? 0) >= 0.75).map((node) => node.id),
   )
@@ -172,7 +183,6 @@ function compactGraph(graph: LuisMemoryGraph) {
   graph.edges = graph.edges.filter((edge) => keep.has(edge.source) && keep.has(edge.target))
   graph.metadata = { ...(graph.metadata ?? {}), lastGraphCompaction: Date.now() }
 }
-
 function addEdge(graph: LuisMemoryGraph, edge: LuisMemoryEdge) {
   if (
     graph.edges.some(
@@ -182,9 +192,29 @@ function addEdge(graph: LuisMemoryGraph, edge: LuisMemoryEdge) {
     return
   graph.edges.push(edge)
 }
-
 let memoryQueue: Promise<void> = Promise.resolve()
+let viewerRefreshTimer: ReturnType<typeof setTimeout> | undefined
+let viewerRefreshRunning = false
+let viewerRefreshPending = false
 
+function scheduleGraphViewer() {
+  if (process.env.LUIS_DISABLE_GRAPH_VIEWER === "1") return
+  viewerRefreshPending = true
+  if (viewerRefreshTimer || viewerRefreshRunning) return
+  viewerRefreshTimer = setTimeout(() => {
+    viewerRefreshTimer = undefined
+    if (viewerRefreshRunning || !viewerRefreshPending) return
+    viewerRefreshPending = false
+    viewerRefreshRunning = true
+    void refreshLuisMemoryGraph()
+      .catch(() => {})
+      .finally(() => {
+        viewerRefreshRunning = false
+        if (viewerRefreshPending) scheduleGraphViewer()
+      })
+  }, 250)
+  viewerRefreshTimer.unref?.()
+}
 const DEFAULT_EMOTION: LuisEmotionState = {
   mood: "calm",
   energy: 0.72,
@@ -197,14 +227,12 @@ const DEFAULT_EMOTION: LuisEmotionState = {
   lastReason: "inicio de Rem",
   updated: 0,
 }
-
 const REM_CHARACTER_MEMORY =
   "Rem de Re:ZERO: oni superviviente, hermana gemela de Ram y maid de la mansión de Roswaal. Su pasado difícil explica su disciplina y sus inseguridades; su crecimiento se expresa como empatía, valentía, protección y confianza construida poco a poco con el jefe. Perfil de personaje para orientar el tono, no conciencia real ni sustituto de recuerdos concretos."
 
 function clamp(value: number) {
   return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5))
 }
-
 function normalizeEmotion(value: unknown): LuisEmotionState {
   const raw = value && typeof value === "object" ? (value as Partial<LuisEmotionState>) : {}
   const moods: LuisMood[] = ["calm", "joyful", "focused", "curious", "concerned", "tired"]
@@ -221,7 +249,6 @@ function normalizeEmotion(value: unknown): LuisEmotionState {
     updated: Number(raw.updated ?? 0),
   }
 }
-
 export async function getLuisEmotion() {
   const graph = await loadGraph()
   return normalizeEmotion(graph.metadata?.luisEmotion)
@@ -272,7 +299,8 @@ export function recordLuisEmotion(input: {
     const temp = `${graphPath()}.tmp`
     await writeFile(temp, JSON.stringify(graph, null, 2), "utf8")
     await rename(temp, graphPath())
-    await writeGraphViewer(graph)
+    invalidateGraphCache()
+    scheduleGraphViewer()
   })
   memoryQueue = task.catch(() => {})
   return task
@@ -323,7 +351,6 @@ function graphifyInput(graph: LuisMemoryGraph) {
     ),
   }
 }
-
 async function exportGraphify(graph: LuisMemoryGraph) {
   const output = graphDirectory()
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "luis-graphify-"))
@@ -350,6 +377,7 @@ async function exportGraphify(graph: LuisMemoryGraph) {
       cwd: temporaryDirectory,
       windowsHide: true,
       maxBuffer: 8 * 1024 * 1024,
+      timeout: Math.max(1_000, Math.min(60_000, Number.parseInt(process.env.LUIS_GRAPHIFY_TIMEOUT_MS ?? "10000", 10) || 10_000)),
     })
     await copyFile(join(temporaryDirectory, "graph.html"), htmlPath())
     return true
@@ -375,7 +403,9 @@ async function writeLuisMemory(input: {
   source?: string
 }) {
   const content = redact(input.content.trim())
-  if (!content) return
+  if (!content || !shouldPersistMemory(content)) return
+  const kind = input.kind === "conversation" && isLuisPreference(content) ? "preference" : input.kind
+  const label = kind === "preference" ? "preferencia del jefe" : input.label
   const now = Date.now()
   const graph = await loadGraph()
   const identity = addNode(graph, {
@@ -395,14 +425,14 @@ async function writeLuisMemory(input: {
     source: input.source,
   })
   const memory = addNode(graph, {
-    id: idFor(`${input.sessionID}:${input.kind}:${input.label}:${content}`),
-    label: input.label.slice(0, 120),
-    type: input.kind,
+    id: idFor(`${input.sessionID}:${kind}:${label}:${content}`),
+    label: label.slice(0, 120),
+    type: kind,
     content,
     created: now,
     updated: now,
     source: input.source,
-    importance: importance(input.kind, content),
+    importance: importance(kind, content),
   })
   addEdge(graph, { source: identity.id, target: session.id, relation: "participa_en", confidence: "EXTRACTED" })
   addEdge(graph, { source: session.id, target: memory.id, relation: "recuerda", confidence: "EXTRACTED" })
@@ -412,32 +442,39 @@ async function writeLuisMemory(input: {
   const temp = `${graphPath()}.tmp`
   await writeFile(temp, JSON.stringify(graph, null, 2), "utf8")
   await rename(temp, graphPath())
-  await writeGraphViewer(graph)
+  invalidateGraphCache()
+  scheduleGraphViewer()
 }
-
 export async function retrieveLuisMemory(query: string, limit = 8) {
-  const graph = await loadGraph()
   const queryTokens = memoryTokens(query)
+  if (!query.trim() || queryTokens.size === 0 || isLuisSmallTalk(query)) return undefined
+  const graph = await loadGraph()
+  const candidateIDs = graphCache?.path === graphPath()
+    ? new Set([...queryTokens].flatMap((token) => [...(graphCache?.index.get(token) ?? [])]))
+    : undefined
+  const candidates = candidateIDs && candidateIDs.size > 0 ? graph.nodes.filter((node) => candidateIDs.has(node.id)) : graph.nodes
   const now = Date.now()
-  const ranked = graph.nodes
+  const ranked = candidates
     .filter((node) => node.id.startsWith("luis:") && node.type !== "identity" && node.content)
     .map((node) => {
-      const tokens = memoryTokens(`${node.label} ${node.content ?? ""}`)
+      const tokens = graphCache?.path === graphPath() ? graphCache.tokens.get(node.id) ?? memoryTokens(`${node.label} ${node.content ?? ""}`) : memoryTokens(`${node.label} ${node.content ?? ""}`)
       const overlap = [...queryTokens].filter((token) => tokens.has(token)).length
       const ageDays = Math.max(0, (now - node.updated) / 86_400_000)
       const recency = Math.max(0, 0.15 - ageDays / 3650)
       const score = overlap * 2 + (node.importance ?? importance(node.type, node.content ?? "")) + recency
       return { node, score, overlap }
     })
-    .filter((item) => queryTokens.size === 0 || item.overlap > 0 || (item.node.importance ?? 0) >= 0.8)
     .sort((a, b) => b.score - a.score || b.node.updated - a.node.updated)
-    .slice(0, Math.max(1, limit))
+  const maxResults = Math.max(1, Math.min(limit, 6))
+  const matching = ranked.filter((item) => item.overlap > 0)
+  const fallback = ranked.filter((item) => item.node.type === "preference" || item.node.type === "capability")
+  const selected = matching.length > 0 ? matching.slice(0, maxResults) : fallback.slice(0, Math.min(2, maxResults))
 
-  if (ranked.length === 0) return undefined
+  if (selected.length === 0) return undefined
   return [
     "<luis_memory>",
     "Recuerdos relevantes del grafo persistente. Úsalos como contexto, pero prioriza la petición actual:",
-    ...ranked.map(({ node }) => `- [${node.type}] ${node.label}: ${redact(node.content ?? "")}`),
+    ...selected.map(({ node }) => `- [${node.type}] ${node.label}: ${redact(node.content ?? "")}`),
     "</luis_memory>",
   ].join("\n")
 }
@@ -449,6 +486,7 @@ export function recordLuisMemory(input: {
   content: string
   source?: string
 }) {
+  if (!shouldPersistMemory(input.content)) return Promise.resolve()
   const task = memoryQueue.then(() => writeLuisMemory(input))
   memoryQueue = task.catch(() => {})
   return task

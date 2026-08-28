@@ -27,8 +27,9 @@ WIDTH, HEIGHT = 300, 430
 CANVAS_WIDTH, CANVAS_HEIGHT = 280, 340
 # Capturing the WebGL canvas is the most expensive part of the overlay. Keep a
 # smooth enough preview while leaving CPU for the model, vision and speech.
-# Advanced users can raise the rate with LUIS_MASCOT_FRAME_MS.
-FRAME_INTERVAL_MS = max(90, int(os.environ.get("LUIS_MASCOT_FRAME_MS", "120")))
+# Advanced users can tune the rate with LUIS_MASCOT_FRAME_MS. WebP keeps the
+# transparent canvas light enough to refresh at interactive frame rates.
+FRAME_INTERVAL_MS = max(16, int(os.environ.get("LUIS_MASCOT_FRAME_MS", "33")))
 HTML = r'''<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
@@ -48,15 +49,25 @@ const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,preserv
 renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;
 scene.add(new THREE.HemisphereLight(0xd9e2ff,0x151827,2.3));
 const key=new THREE.DirectionalLight(0xffffff,2.8);key.position.set(1.5,3,4);scene.add(key);
-  let vrm=null,baseY=0,last=performance.now(),state='idle',currentAction='idle',actionStarted=performance.now(),motionBlend=1;
+  let vrm=null,baseY=0,last=performance.now(),state='idle',currentAction='idle',actionStarted=performance.now(),speechStartedAt=performance.now(),speechText='',motionBlend=1,speechMouth=0,speechAa=0,speechEe=0,speechIh=0,speechOh=0,speechOu=0,speechLarge=0;
+  const mouthMorphs=[];
+  const mouthTargetNames=[
+    ['Fcl_MTH_A','aa'],
+    ['Fcl_MTH_E','ee'],
+    ['Fcl_MTH_I','ih'],
+    ['Fcl_MTH_O','oh'],
+    ['Fcl_MTH_U','ou'],
+    ['Fcl_MTH_Large','large'],
+  ];
   let leftShoulder=null,rightShoulder=null,leftArm=null,rightArm=null,leftForearm=null,rightForearm=null,leftHand=null,rightHand=null;
   let leftIndex1=null,leftIndex2=null,rightIndex1=null,rightIndex2=null,leftThumb1=null,rightThumb1=null,leftLeg=null,rightLeg=null,leftUpperLeg=null,rightUpperLeg=null,leftFoot=null,rightFoot=null,hips=null,spine=null,chest=null,head=null,neck=null;
-const baseRotations=new Map();
+const baseRotations=new Map(),targetRotations=new Map();
 const aliases={ready:'idle',looking:'look',greeting:'greet',greet:'greet',saludar:'greet',listening:'listening',speaking:'speaking',talking:'speaking',thinking:'thinking','head-touch':'head-touch',crossed:'crossed',reading:'reading',coding:'coding',typing:'typing',reviewing:'reviewing',searching:'searching',graph:'graph',opening:'acting',acting:'acting',pointing:'pointing',mouse:'mouse',loading:'loading',confirm:'confirm',error:'error',success:'success',sleeping:'sleeping',music:'dancing',dance:'dancing',dancing:'dancing',bailando:'dancing',move:'roaming',moving:'roaming',mover:'roaming',moverse:'roaming',muevete:'roaming','muévete':'roaming',moviéndose:'roaming',bow:'bow',agacharse:'bow',side:'side','turn-side':'side',virarse:'side',nod:'nod',asentir:'nod','shake-head':'shake-head',negar:'shake-head',shy:'shy',timida:'shy',stretch:'stretch',estirarse:'stretch','wave-both':'wave-both',celebrate:'celebrate',celebrar:'celebrate',salute:'salute',clap:'clap',aplaudir:'clap',shrug:'shrug',encogerse:'shrug',sit:'sit',sentarse:'sit',kneel:'kneel',arrodillarse:'kneel',walk:'walk',caminar:'walk',run:'run',correr:'run',spin:'spin',girar:'spin',working:'coding',idle:'idle'};
 function actionFor(value){return aliases[String(value||'idle').toLowerCase()]||'idle'}
 function rememberBone(name){const bone=vrm.humanoid?.getNormalizedBoneNode(name);if(bone){baseRotations.set(bone,{x:bone.rotation.x,y:bone.rotation.y,z:bone.rotation.z})}return bone}
-function pose(bone,x=0,y=0,z=0){if(!bone)return;const base=baseRotations.get(bone)||{x:0,y:0,z:0};bone.rotation.set(base.x+x*motionBlend,base.y+y*motionBlend,base.z+z*motionBlend)}
-function resetPose(){for(const [bone,base] of baseRotations)bone.rotation.set(base.x,base.y,base.z)}
+function pose(bone,x=0,y=0,z=0){if(!bone)return;const base=baseRotations.get(bone)||{x:0,y:0,z:0};targetRotations.set(bone,{x:base.x+x*motionBlend,y:base.y+y*motionBlend,z:base.z+z*motionBlend})}
+function resetPose(){for(const [bone,base] of baseRotations)targetRotations.set(bone,{x:base.x,y:base.y,z:base.z})}
+function settlePose(delta){for(const [bone,target] of targetRotations){bone.rotation.x=THREE.MathUtils.damp(bone.rotation.x,target.x,14,delta);bone.rotation.y=THREE.MathUtils.damp(bone.rotation.y,target.y,14,delta);bone.rotation.z=THREE.MathUtils.damp(bone.rotation.z,target.z,14,delta)}}
 function normalize(){
   const box=new THREE.Box3().setFromObject(vrm.scene),size=box.getSize(new THREE.Vector3());
   const scale=1.35/Math.max(size.y,.01);vrm.scene.scale.setScalar(scale);
@@ -97,8 +108,18 @@ function normalize(){
   camera.lookAt(0,.64,0);
 }
 const loader=new GLTFLoader();loader.register(parser=>new VRMLoaderPlugin(parser));
-loader.load('/luis.vrm',gltf=>{vrm=gltf.userData.vrm;scene.add(vrm.scene);normalize();window.__luisReady=true},undefined,error=>{window.__luisError=String(error)});
-window.__luisState=s=>{const next=actionFor(s);state=s||'idle';if(next!==currentAction){currentAction=next;actionStarted=performance.now()}};
+loader.load('/luis.vrm',gltf=>{
+  vrm=gltf.userData.vrm;scene.add(vrm.scene);
+  vrm.scene.traverse(object=>{
+    if(!object.isMesh||!object.morphTargetInfluences||!object.morphTargetDictionary)return;
+    for(const [name,key] of mouthTargetNames){
+      const index=object.morphTargetDictionary[name];
+      if(Number.isInteger(index)) mouthMorphs.push({mesh:object,index,key});
+    }
+  });
+  normalize();window.__luisReady=true
+},undefined,error=>{window.__luisError=String(error)});
+window.__luisState=(s,text)=>{const next=actionFor(s),nextText=String(text||''),actionChanged=next!==currentAction;if(actionChanged||nextText!==speechText)speechStartedAt=performance.now();if(actionChanged)actionStarted=performance.now();currentAction=next;state=s||'idle';speechText=nextText};
 function applyZoom(scale){
   const value=Math.max(.3,Math.min(4,Number(scale)||1));
   camera.position.z=defaultCameraZ/value;
@@ -107,6 +128,20 @@ function applyZoom(scale){
   camera.lookAt(0,focusY,0);
 }
 window.__luisZoom=applyZoom;
+function speechCue(now){
+  const value=speechText.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(!value)return {open:.08,aa:.08,ee:0,ih:0,oh:0,ou:0,large:0};
+  const elapsed=Math.max(0,(now-speechStartedAt)/1000);
+  const character=value[Math.floor(elapsed*11)%value.length];
+  if(/[,.!?;:]/.test(character))return {open:0,aa:0,ee:0,ih:0,oh:0,ou:0,large:0};
+  if(character==='a')return {open:.92,aa:.88,ee:0,ih:0,oh:.08,ou:0,large:.12};
+  if(character==='e')return {open:.56,aa:.08,ee:.82,ih:.12,oh:0,ou:0,large:.04};
+  if(character==='i')return {open:.44,aa:.04,ee:.12,ih:.82,oh:0,ou:0,large:0};
+  if(character==='o')return {open:.82,aa:.12,ee:0,ih:0,oh:.9,ou:.04,large:.18};
+  if(character==='u')return {open:.64,aa:.08,ee:0,ih:0,oh:.14,ou:.86,large:.08};
+  if(/\s/.test(character))return {open:.04,aa:0,ee:0,ih:0,oh:0,ou:0,large:0};
+  return {open:.2,aa:.12,ee:0,ih:.04,oh:0,ou:0,large:0};
+}
 function animate(now){
   const delta=Math.min((now-last)/1000,.1);last=now;
   if(vrm){
@@ -114,9 +149,9 @@ function animate(now){
     const transition=Math.min(1,(now-actionStarted)/420);motionBlend=transition*transition*(3-2*transition);
     resetPose();
     const idle=action==='idle', still=idle||action==='greet';
-    vrm.scene.rotation.y=still?(idle?Math.sin(t*.35)*.01:0):Math.sin(t*.55)*.035;
-    vrm.scene.rotation.z=0;
-    vrm.scene.position.y=still?(idle?baseY+Math.sin(t*.8)*.006:baseY):baseY+Math.sin(t*1.1)*.012;
+    let targetSceneY=still?(idle?Math.sin(t*.35)*.01:0):Math.sin(t*.55)*.035;
+    let targetSceneZ=0;
+    const targetScenePositionY=still?(idle?baseY+Math.sin(t*.8)*.006:baseY):baseY+Math.sin(t*1.1)*.012;
     if(idle||action==='greet'){
       if(chest) pose(chest,Math.sin(t*.8)*.012,Math.sin(t*.8)*.018,0);
       if(hips) pose(hips,0,0,Math.sin(t*.55)*.008);
@@ -203,7 +238,7 @@ function animate(now){
         pose(chest,.04+Math.sin(t*.5)*.005,0,0);
         break;
       case 'dancing':
-        vrm.scene.rotation.z=Math.sin(t*3.2)*.09; pose(hips,0,0,Math.sin(t*3.2)*.08); pose(chest,0,0,-Math.sin(t*3.2)*.06);
+        targetSceneZ=Math.sin(t*3.2)*.09; pose(hips,0,0,Math.sin(t*3.2)*.08); pose(chest,0,0,-Math.sin(t*3.2)*.06);
         pose(leftArm,-.35,0,.65+Math.sin(t*5)*.22); pose(rightArm,-.35,0,-.65-Math.sin(t*5)*.22); pose(leftForearm,-.25,0,.2); pose(rightForearm,-.25,0,-.2);
         pose(leftLeg,Math.max(0,Math.sin(t*3.2))*.18,0,0); pose(rightLeg,Math.max(0,-Math.sin(t*3.2))*.18,0,0); pose(head,Math.sin(t*3.2)*.08,0,0);
         break;
@@ -211,7 +246,7 @@ function animate(now){
         pose(chest,.34,0,0); pose(hips,.12,0,0); pose(head,.42,0,0); pose(leftArm,-.18,0,.16); pose(rightArm,-.18,0,-.16);
         break;
       case 'side':
-        vrm.scene.rotation.y=.42; pose(head,0,-.18,0); pose(chest,0,-.08,0); pose(leftArm,0,0,-.08); pose(rightArm,0,0,.08);
+        targetSceneY=.42; pose(head,0,-.18,0); pose(chest,0,-.08,0); pose(leftArm,0,0,-.08); pose(rightArm,0,0,.08);
         break;
       case 'nod':
         pose(head,.16+Math.sin(t*3.8)*.15,0,0); pose(chest,Math.sin(t*3.8)*.025,0,0);
@@ -260,21 +295,42 @@ function animate(now){
         pose(leftLeg,Math.max(0,-Math.sin(t*6))*.5,0,0); pose(rightLeg,Math.max(0,Math.sin(t*6))*.5,0,0); pose(leftArm,-Math.sin(t*6)*.42,0,0); pose(rightArm,Math.sin(t*6)*.42,0,0);
         break;
       case 'spin':
-        vrm.scene.rotation.y=Math.sin(t*.8)*1.15; pose(chest,0,0,Math.sin(t*1.6)*.08); pose(leftArm,-.35,0,.3); pose(rightArm,-.35,0,-.3); pose(head,0,-Math.sin(t*.8)*.15,0);
+        targetSceneY=Math.sin(t*.8)*1.15; pose(chest,0,0,Math.sin(t*1.6)*.08); pose(leftArm,-.35,0,.3); pose(rightArm,-.35,0,-.3); pose(head,0,-Math.sin(t*.8)*.15,0);
         break;
       default:
         break;
     }
+    vrm.scene.rotation.y=THREE.MathUtils.damp(vrm.scene.rotation.y,targetSceneY,8,delta);
+    vrm.scene.rotation.z=THREE.MathUtils.damp(vrm.scene.rotation.z,targetSceneZ,8,delta);
+    vrm.scene.position.y=THREE.MathUtils.damp(vrm.scene.position.y,targetScenePositionY,9,delta);
+    settlePose(delta);
     if(vrm.expressionManager){
-      const mouth=action==='speaking'?(Math.sin(now*.018)*.5+.5):Math.sin(now*.003)*.1;
-      vrm.expressionManager.setValue('aa',mouth);
+      // Animate the actual VRM vowel presets. Keeping `aa` open most of the
+      // time makes speech visible even when a model's mouth blendshape is subtle.
+      const speaking=action==='speaking',cue=speaking?speechCue(now):{open:0,aa:0,ee:0,ih:0,oh:0,ou:0,large:0};
+      speechMouth=THREE.MathUtils.damp(speechMouth,cue.open,24,delta);
+      speechAa=THREE.MathUtils.damp(speechAa,cue.aa,24,delta);
+      speechEe=THREE.MathUtils.damp(speechEe,cue.ee,24,delta);
+      speechIh=THREE.MathUtils.damp(speechIh,cue.ih,24,delta);
+      speechOh=THREE.MathUtils.damp(speechOh,cue.oh,24,delta);
+      speechOu=THREE.MathUtils.damp(speechOu,cue.ou,24,delta);
+      speechLarge=THREE.MathUtils.damp(speechLarge,cue.large,24,delta);
+      vrm.expressionManager.setValue('aa',speechAa);
+      vrm.expressionManager.setValue('ee',speechEe);
+      vrm.expressionManager.setValue('ih',speechIh);
+      vrm.expressionManager.setValue('oh',speechOh);
+      vrm.expressionManager.setValue('ou',speechOu);
       // Micro-expresiones constantes para dar vida
       // Parpadeo corto y natural durante el reposo, aproximadamente cada 5 segundos.
       const blinkPhase=(now/1000)%5.2;
       const blink=blinkPhase>4.95?Math.sin(Math.min(1,(blinkPhase-4.95)/.25)*Math.PI):0;
       vrm.expressionManager.setValue('blink',blink);
     }
-    vrm.update(delta)
+    vrm.update(delta);
+    // Fallback directo para este modelo: garantiza que el morph de apertura
+    // se conserve después de que VRM aplique sus expresiones.
+    const directMouthValues={aa:speechAa,ee:speechEe,ih:speechIh,oh:speechOh,ou:speechOu,large:speechLarge};
+    for(const {mesh,index,key} of mouthMorphs) mesh.morphTargetInfluences[index]=directMouthValues[key]||0;
   }
   renderer.render(scene,camera);requestAnimationFrame(animate)
 }
@@ -485,17 +541,17 @@ class LuisOverlay:
             self.status.configure(text=labels.get(current.get("status"), current.get("status", "lista")))
             self.draw_controls()
             if self.page:
-                self.page.evaluate("status => window.__luisState(status)", current.get("status", "idle"))
+                self.page.evaluate("value => window.__luisState(value.status, value.text)", {"status": current.get("status", "idle"), "text": current.get("speech_text", "")})
         self.update_roaming(current.get("status") in {"dancing", "dance", "music", "roaming", "move", "moving", "mover", "moverse", "muevete", "muévete", "moviéndose"})
         if current.get("visible") is False or current.get("status") == "exit":
             self.close()
             return
-        self.root.after(120, self.update_state)
+        self.root.after(60, self.update_state)
 
     def update_frame(self):
         if self.page and ImageTk:
             try:
-                data_url = self.page.evaluate("document.getElementById('canvas').toDataURL('image/png')")
+                data_url = self.page.evaluate("document.getElementById('canvas').toDataURL('image/webp', 0.88)")
                 raw = base64.b64decode(data_url.split(",", 1)[1])
                 frame = Image.open(BytesIO(raw)).convert("RGBA")
                 self.image = ImageTk.PhotoImage(frame)

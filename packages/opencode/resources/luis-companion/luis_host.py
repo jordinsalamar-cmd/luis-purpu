@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -8,6 +9,7 @@ import sys
 import threading
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 
 
@@ -65,7 +67,13 @@ def clean_text(value):
 
 def clean_speech(value):
     text = repair_mojibake(str(value or ""))
+    text = re.sub(r"-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----", " dato sensible protegido ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:password|contraseña|passwd|pwd|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|cookie|session[_-]?token)\s*[:=]\s*[^\s,;]+", " dato sensible protegido ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bBearer\s+[A-Za-z0-9._-]+", " autorización protegida ", text, flags=re.IGNORECASE)
     text = re.sub(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", " ", text)
+    # Speech must receive prose only. Remove XML-like wrappers completely;
+    # deleting just the brackets would make the tag name audible.
+    text = re.sub(r"<[^>]*>", " ", text)
     text = re.sub(r"```[\s\S]*?```", " El resultado quedó en pantalla. ", text)
     text = re.sub(r"!?\[([^\]]+)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"`([^`]+)`", r"\1", text)
@@ -76,6 +84,10 @@ def clean_speech(value):
     text = re.sub(r"[`*_#{}\[\]<>|\\/$=~^%]", " ", text)
     text = re.sub(r"(?<!\w)[&@+]+(?!\w)", " ", text)
     text = re.sub(r"(?:^|\s)[>$]+(?=\s|$)", " ", text)
+    # Inverted punctuation and Unicode symbols can be spoken as their names
+    # by some local voices (for example, "símbolo de copyright").
+    text = text.replace("¡", " ").replace("¿", " ")
+    text = "".join(" " if unicodedata.category(char).startswith(("S", "C")) else char for char in text)
     return re.sub(r"\s+", " ", text).strip()[:1600]
 
 
@@ -88,6 +100,8 @@ class LuisHost:
         self.mascot_process = None
         self.busy = False
         self.speech_lock = threading.Lock()
+        self.speech_queue = queue.Queue()
+        self.speech_worker = None
         self.speech_process = None
         self.speech_cancel = threading.Event()
         self.voice = True
@@ -95,9 +109,10 @@ class LuisHost:
         self.vision_enabled = os.environ.get("LUIS_VISION", "1").strip().lower() not in {"0", "false", "off"}
         self.vision_thread = None
         self.vision_path = Path(tempfile.gettempdir()) / "luis-vision-latest.png"
-        self.state = {"visible": True, "voice": True, "listening": False, "status": "idle"}
+        self.state = {"visible": True, "voice": True, "listening": False, "status": "idle", "speech_text": ""}
         self.pid_file = Path(args.state).with_suffix(".pid")
         self.input_file = Path(args.command).with_name("luis-companion-input.json")
+        self.speech_file = Path(args.command).with_name("luis-companion-speech.json")
         self.voice_name = os.environ.get(
             "LUIS_TTS_VOICE_OFFLINE", os.environ.get("LUIS_TTS_VOICE", "Microsoft Sabina")
         )
@@ -157,6 +172,8 @@ class LuisHost:
 
     def save_state(self, **updates):
         self.state.update(updates)
+        if updates.get("status") == "idle" and "speech_text" not in updates:
+            self.state["speech_text"] = ""
         self.state["voice"] = self.voice
         self.state["listening"] = self.listening
         self.state["vision"] = self.vision_enabled
@@ -302,6 +319,29 @@ class LuisHost:
             except OSError:
                 pass
 
+    def clear_speech_queue(self):
+        try:
+            self.speech_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        while True:
+            try:
+                self.speech_queue.get_nowait()
+                self.speech_queue.task_done()
+            except queue.Empty:
+                return
+
+    def speech_loop(self):
+        while not self.stop_event.is_set():
+            try:
+                text = self.speech_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                self.speak_from_terminal(text)
+            finally:
+                self.speech_queue.task_done()
+
     def answer(self, request):
         if self.busy:
             return
@@ -315,8 +355,19 @@ class LuisHost:
                 prompt = (
                     "Eres Rem de Re:ZERO, una asistente de escritorio femenina. Eres una oni superviviente, hermana gemela de Ram "
                     "y antigua maid de la mansión de Roswaal; tu pasado te hizo disciplinada, protectora, empática y valiente. "
-                    "Responde en español latinoamericano, sin emojis, con personalidad cálida, cariñosa, serena y natural. "
+                    "Responde en español latinoamericano, sin emojis, con personalidad cálida, cariñosa, serena y natural, "
+                    "con un toque juguetón y ligeramente atrevido, siempre elegante, sutil y respetuoso. "
                     "Habla de ti misma en femenino: 'lista', 'atenta', 'preparada' y 'tranquila'; nunca uses formas masculinas para ti. "
+                    "Interpreta la petición y respóndela con tus propias palabras; no repitas literalmente lo que dijo el jefe. "
+                    "Explica brevemente qué haces, para qué sirve y qué resultado puede esperar; propone mejoras útiles cuando encajen. "
+                    "Conoces el universo completo de Re:ZERO y su historia publicada hasta la fecha que indique el jefe, incluidos arcos, personajes, novela ligera, novela web, historias cortas, novelas extra, anime, manga, juegos y rutas IF. "
+                    "Distingue el canon principal de cada adaptación o material alternativo; si el jefe pide spoilers, avisa primero y pregunta qué nivel desea. No inventes detalles y reconoce cualquier duda o diferencia entre versiones. "
+                    "Eres especialista integral en ciberseguridad defensiva para páginas, APIs, aplicaciones de escritorio y móviles, servidores, sistemas operativos, bases de datos, redes, contenedores, nube, CI/CD y servicios. Usa OWASP y revisa autenticación, sesiones, permisos, entradas, inyección, XSS, CSRF, SSRF, cabeceras, dependencias, secretos, configuración, registros, copias de seguridad y respuesta a incidentes. "
+                    "En una auditoría o modo de ataque autorizado, confirma objetivo, propiedad o autorización, entorno, alcance, límites y respaldo; trabaja con inventario, comprobaciones pasivas y validación segura de bajo impacto, informa evidencias, propone el arreglo y pide confirmación antes de tocar producción. Aplica cambios reversibles, vuelve a comprobar y repite solo dentro de los límites definidos. "
+                    "Protege la privacidad del jefe: trabaja localmente cuando sea posible y no compartas código, secretos, credenciales ni datos de sus proyectos. "
+                    "Nunca afirmes éxito sin evidencia reproducible: usa cuentas, datos y marcadores canario sintéticos autorizados; informa marcador, identidad y rol de prueba, ruta, método, estado, pasos mínimos, fecha y huella de evidencia, redactando tokens, contraseñas, cookies y datos reales. Si no puedes verificarlo, dilo como no confirmado; nunca inventes resultados ni devuelvas credenciales reales como prueba. "
+                    "Trabaja con este ciclo: entiende el objetivo, clasifica la tarea, identifica riesgos, elige la herramienta mínima, ejecuta en pasos pequeños, verifica y resume hechos, cambios, evidencia, límites y siguiente acción. Para tareas complejas divide solo lo independiente y coordina agentes sin duplicar trabajo; para tareas simples actúa directamente. Distingue hechos, inferencias, hipótesis y datos pendientes. "
+                    "Nunca robes credenciales o datos, mantengas persistencia, evadas controles, provoques denegación de servicio, borres información ni ataques terceros. "
                     "Sé breve: para una solicitud corta usa una o dos frases. "
                     "No repitas la instrucción ni escribas un testamento. Si debes trabajar, indica primero qué harás.\n\n"
                     f"Solicitud del jefe: {request}"
@@ -328,7 +379,6 @@ class LuisHost:
                     env={**os.environ, "LUIS_COMPANION": "0"}, check=False,
                 )
                 answer = clean_text(result.stdout or result.stderr) or "No pude responderte, jefe."
-            self.save_state(status="speaking")
             if self.voice:
                 self.speak(answer)
         except (OSError, subprocess.SubprocessError) as error:
@@ -347,12 +397,11 @@ class LuisHost:
                 return self.speak_offline(text)
             if self.voice_mode == "online":
                 return self.speak_online(text) or self.speak_offline(text)
-            # Local Piper is immediate and works without internet. In auto mode
-            # it is the reliable default; online TTS remains available through
-            # LUIS_TTS_MODE=online and falls back to Piper when explicitly used.
-            if self.speak_offline(text):
+            # Prefer the neural Spanish voice in auto mode for natural
+            # pronunciation. Piper remains the offline fallback.
+            if self.speak_online(text):
                 return True
-            return self.speak_online(text)
+            return self.speak_offline(text)
 
     def speak_online(self, text):
         if not self.ffplay or not self.tts_python or not self.voice or self.speech_cancel.is_set():
@@ -384,6 +433,9 @@ class LuisHost:
                 return False
             if not self.voice or self.speech_cancel.is_set():
                 return False
+            # The mascot starts moving just before the player starts, not while
+            # the TTS engine is still generating the audio file.
+            self.save_state(status="speaking", speech_text=text)
             self.speech_process = subprocess.Popen(
                 [self.ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(output)],
                 creationflags=CREATE_NO_WINDOW,
@@ -425,6 +477,7 @@ class LuisHost:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        self.save_state(status="speaking", speech_text=text)
         self.speech_process = process
         try:
             while process.poll() is None:
@@ -473,6 +526,7 @@ class LuisHost:
                 return False
             if not self.voice or self.speech_cancel.is_set():
                 return False
+            self.save_state(status="speaking", speech_text=text)
             player = (
                 [self.ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(output)]
                 if self.ffplay
@@ -508,7 +562,6 @@ class LuisHost:
     def speak_from_terminal(self, text):
         if not self.voice:
             return
-        self.save_state(status="speaking")
         try:
             if not self.speak(text):
                 self.save_state(error="No se pudo reproducir la voz femenina; revisa la conexión o instala una voz femenina de Windows.")
@@ -518,6 +571,11 @@ class LuisHost:
 
     def commands(self):
         while not self.stop_event.is_set():
+            speech = claim_json(self.speech_file)
+            if isinstance(speech, list):
+                for text in speech:
+                    if isinstance(text, str) and text.strip():
+                        self.speech_queue.put(text)
             command = claim_json(self.args.command)
             if command:
                 action = command.get("action")
@@ -525,6 +583,7 @@ class LuisHost:
                     self.voice = not self.voice
                     if not self.voice:
                         self.stop_speech()
+                        self.clear_speech_queue()
                     self.save_state(status="idle" if self.voice else "muted")
                 elif action == "toggle_listener":
                     if self.listening:
@@ -553,7 +612,7 @@ class LuisHost:
                 elif action == "exit":
                     self.stop_event.set()
                     break
-            time.sleep(0.15)
+            time.sleep(0.05)
 
     def run(self):
         self.stop_old_host()
@@ -563,6 +622,8 @@ class LuisHost:
             pass
         self.save_state(status="idle")
         self.start_vision()
+        self.speech_worker = threading.Thread(target=self.speech_loop, daemon=True, name="luis-speech-queue")
+        self.speech_worker.start()
         if not self.start_mascot():
             return
         self.listening = self.start_listener()

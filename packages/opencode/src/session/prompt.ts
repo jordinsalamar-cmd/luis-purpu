@@ -57,8 +57,12 @@ import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
 import { recordLuisMemory, retrieveLuisMemory } from "@/luis/memory"
-import { prepareLuisPersonality, settleLuisPersonality } from "@/luis/personality"
+import { recordLuisEvidence } from "@/luis/evidence"
+import { luisGreetingText, nextLuisWorkingAcknowledgement, prepareLuisPersonality, settleLuisPersonality } from "@/luis/personality"
 import { setLuisStatus, speakLuis } from "@/luis/companion"
+import { securityRuntimeRules } from "@/luis/security"
+import { armLuisCreatorSession, clearLuisCreatorSession } from "@/luis/creator"
+import { inspectLuisResponse } from "@/luis/quality"
 import {
   availableFallbacks,
   configuredFallbacks,
@@ -130,34 +134,9 @@ function isLuisGreeting(text: string) {
   return /^(hola|holi|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey)(\s+(bro|jefe|rem))?$/.test(normalized)
 }
 
-function createLuisProgressNarrator(onSpoken: (text: string) => void) {
-  let buffer = ""
-  let spoken = false
-
-  return (delta: string) => {
-    if (spoken) return
-    buffer += delta
-    const clean = buffer.replace(/```[\s\S]*?```/g, "").replace(/\s+/g, " ").trim()
-    if (clean.length < 28) return
-
-    const sentence = clean.match(/^(.{28,220}?[.!?])(?:\s|$)/)?.[1] ?? (clean.length >= 150 ? clean.slice(0, 150) : "")
-    if (!sentence) return
-    spoken = true
-    onSpoken(sentence)
-    speakLuis(sentence)
-  }
-}
-
-function removeRepeatedLuisProgress(text: string, spoken: string[]) {
-  let remaining = text.trim()
-  for (const progress of spoken) {
-    if (remaining.startsWith(progress)) remaining = remaining.slice(progress.length).trim()
-  }
-  if (!remaining) return "Listo, jefe. La tarea terminó."
-  if (!/\b(tarea termin[oó]|trabajo termin[oó]|listo,? jefe)\b/i.test(remaining)) {
-    return remaining + " Listo, jefe. La tarea terminó."
-  }
-  return remaining
+function isLuisQuestion(text: string) {
+  const normalized = text.trim().toLocaleLowerCase("es")
+  return /[¿?]/.test(normalized) || /\b(c[oó]mo|qu[eé]|cu[aá]ndo|d[oó]nde|por qu[eé]|puedes|podr[ií]as|debo|es posible)\b/.test(normalized)
 }
 
 export interface Interface {
@@ -202,7 +181,6 @@ const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
     const { db } = database
-    const luisProgressBySession = new Map<SessionID, string[]>()
     const luisNarrationBySession = new Set<SessionID>()
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
@@ -1115,7 +1093,9 @@ const layer = Layer.effect(
     const prompt: (input: PromptInput) => Effect.Effect<SessionV1.WithParts, Image.Error> = Effect.fn(
       "SessionPrompt.prompt",
     )(function* (input: PromptInput) {
+      const turnStartedAt = Date.now()
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+      const originalSessionPermission = session.permission ?? []
       yield* revert.cleanup(session)
       const message = yield* createUserMessage(input)
       yield* sessions.touch(input.sessionID)
@@ -1123,18 +1103,19 @@ const layer = Layer.effect(
         .filter((part): part is SessionV1.TextPart => part.type === "text")
         .map((part) => part.text)
         .join("\n")
+      const creatorArmedByCurrentCommand = armLuisCreatorSession(input.sessionID, userText)
       const personality = yield* Effect.promise(() => prepareLuisPersonality({ sessionID: input.sessionID, text: userText })).pipe(
         Effect.orElseSucceed(() => undefined),
       )
-      yield* Effect.promise(() =>
-        recordLuisMemory({
+      yield* Effect.sync(() => {
+        void recordLuisMemory({
           sessionID: input.sessionID,
           kind: "conversation",
           label: "solicitud del jefe",
           content: userText,
           source: "session.prompt.user",
-        }),
-      ).pipe(Effect.ignore)
+        })
+      })
 
       const permissions: PermissionV1.Rule[] = []
       for (const [t, enabled] of Object.entries(input.tools ?? {})) {
@@ -1145,12 +1126,24 @@ const layer = Layer.effect(
         yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
       }
 
+      const securityRules = securityRuntimeRules(userText, undefined, input.sessionID)
+      if (!creatorArmedByCurrentCommand) clearLuisCreatorSession(input.sessionID)
+      if (securityRules.length > 0) {
+        const guardedPermission = [...(session.permission ?? originalSessionPermission), ...securityRules]
+        session.permission = guardedPermission
+        yield* sessions.setPermission({ sessionID: session.id, permission: guardedPermission })
+        yield* Effect.addFinalizer(() => sessions.setPermission({ sessionID: session.id, permission: originalSessionPermission }))
+      }
+
       if (input.noReply === true) return message
       const greeting = isLuisGreeting(userText)
       yield* Effect.sync(() => setLuisStatus(greeting ? "idle" : "thinking")).pipe(Effect.ignore)
-      luisProgressBySession.delete(input.sessionID)
       const narrateTask = shouldNarrateLuisTask(userText)
-      if (narrateTask) {
+      if (greeting) {
+        yield* Effect.sync(() => speakLuis(luisGreetingText())).pipe(Effect.ignore)
+      } else if (isLuisQuestion(userText)) {
+        yield* Effect.sync(() => speakLuis(nextLuisWorkingAcknowledgement())).pipe(Effect.ignore)
+      } else if (narrateTask) {
         luisNarrationBySession.add(input.sessionID)
         yield* Effect.sync(() => speakLuis("Entendido, jefe. Ya empecé a trabajar y te iré contando el progreso.")).pipe(
           Effect.ignore,
@@ -1163,21 +1156,38 @@ const layer = Layer.effect(
         .filter((part): part is SessionV1.TextPart => part.type === "text")
         .map((part) => part.text)
         .join("\n")
-      const spokenProgress = luisProgressBySession.get(input.sessionID) ?? []
-      luisProgressBySession.delete(input.sessionID)
-      const shouldSpeakCompletion = luisNarrationBySession.delete(input.sessionID)
-      yield* Effect.promise(() =>
-        recordLuisMemory({
+      luisNarrationBySession.delete(input.sessionID)
+      yield* Effect.sync(() => {
+        void recordLuisMemory({
           sessionID: input.sessionID,
           kind: "lesson",
           label: "respuesta de Rem",
           content: assistantText,
           source: "session.prompt.assistant",
-        }),
-      ).pipe(Effect.ignore)
+        })
+      })
       yield* Effect.promise(() => settleLuisPersonality({ sessionID: input.sessionID, text: assistantText })).pipe(Effect.ignore)
-      const finalSpeech = shouldSpeakCompletion ? removeRepeatedLuisProgress(assistantText, spokenProgress) : assistantText.trim()
-      yield* Effect.sync(() => speakLuis(finalSpeech)).pipe(Effect.ignore)
+      const finalSpeech = assistantText.trim()
+      if (!greeting && finalSpeech) yield* Effect.sync(() => speakLuis(finalSpeech)).pipe(Effect.ignore)
+      yield* Effect.sync(() => {
+        const evidenceParts = response.parts.map((part) => {
+          const raw = part as { type?: unknown; id?: unknown; state?: { status?: unknown } }
+          return {
+            type: typeof raw.type === "string" ? raw.type : "unknown",
+            ...(typeof raw.id === "string" ? { id: raw.id.slice(0, 120) } : {}),
+            ...(typeof raw.state?.status === "string" ? { status: raw.state.status } : {}),
+          }
+        })
+        const quality = inspectLuisResponse(assistantText, evidenceParts)
+        void recordLuisEvidence({
+          sessionID: input.sessionID,
+          request: userText,
+          response: assistantText,
+          parts: evidenceParts,
+          durationMs: Date.now() - turnStartedAt,
+          quality,
+        })
+      })
       return response
     })
 
@@ -1196,9 +1206,8 @@ const layer = Layer.effect(
         let structured: unknown
         let step = 0
         const attemptedFallbacks = new Set<string>()
+        const memoryByQuery = new Map<string, string | undefined>()
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
-        const spokenProgress = luisProgressBySession.get(sessionID) ?? []
-        luisProgressBySession.set(sessionID, spokenProgress)
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1315,12 +1324,6 @@ const layer = Layer.effect(
           }
           yield* sessions.updateMessage(msg)
 
-          // Each model/tool step gets its own short spoken progress update.
-          // The final response is still spoken by `prompt` after the loop ends.
-          const narrateProgress = luisNarrationBySession.has(sessionID)
-            ? createLuisProgressNarrator((text) => spokenProgress.push(text))
-            : () => {}
-
           const finalizeInterruptedAssistant = Effect.gen(function* () {
             if (msg.time.completed) return
             msg.error ??= MessageV2.fromError(new DOMException("Aborted", "AbortError"), {
@@ -1336,7 +1339,8 @@ const layer = Layer.effect(
               assistantMessage: msg,
               sessionID,
               model,
-              onTextDelta: (text) => Effect.sync(() => narrateProgress(text)),
+              // Synthesize once after the complete response so speech stays continuous.
+              onTextDelta: () => Effect.void,
             })
             .pipe(Effect.onInterrupt(() => finalizeInterruptedAssistant))
 
@@ -1382,9 +1386,14 @@ const layer = Layer.effect(
                 .filter((part): part is SessionV1.TextPart => part.type === "text" && !part.synthetic)
                 .map((part) => part.text)
                 .join("\n") ?? ""
-            const memory = yield* Effect.promise(() => retrieveLuisMemory(memoryQuery)).pipe(
-              Effect.orElseSucceed(() => undefined),
-            )
+            let memory: string | undefined
+            if (memoryByQuery.has(memoryQuery)) memory = memoryByQuery.get(memoryQuery)
+            else {
+              memory = yield* Effect.promise(() => retrieveLuisMemory(memoryQuery, 6)).pipe(
+                Effect.orElseSucceed(() => undefined),
+              )
+              memoryByQuery.set(memoryQuery, memory)
+            }
             const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model, [memory, input.personality].filter((part): part is string => Boolean(part)).join("\n")),
